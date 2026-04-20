@@ -1,0 +1,39 @@
+{
+    /**
+     * Any change you make to this file, should also be made to the pyrightconfig.json at the root of the workspace.
+     * This is because the pyrightconfig.json at the root of the workspace is the one that is used by the Pylance extension,
+     * while this one is used by scripts that only see this subfolder (e.g., in Docker).
+     */
+    "include": [
+        "src",
+        "tests"
+    ],
+    "typeCheckingMode": "standard",
+    "deprecateTypingAliases": true,
+    "strictSetInference": true,
+    "enableReachabilityAnalysis": true,
+    "reportPrivateUsage": "warning",
+    "reportUnnecessaryCast": "error",
+    // "reportUnnecessaryIsInstance": "warning",
+    "reportDuplicateImport": "error",
+    "reportInconsistentConstructor": "error",
+    "reportMatchNotExhaustive": "error",
+    "reportMissingParameterType": "warning",
+    "reportTypeCommentUsage": "error",
+    "reportUnusedVariable": "error",
+    "reportUnnecessaryTypeIgnoreComment": "warning",
+    "reportConstantRedefinition": "warning",
+    "reportDeprecated": "warning",
+    "reportIncompleteStub": "error",
+    "reportInvalidStubStatement": "error",
+    "reportUnnecessaryComparison": "warning",
+    "reportUnnecessaryContains": "warning",
+    "reportUnusedClass": "warning",
+    "reportUnusedImport": "warning",
+    "reportUntypedBaseClass": "warning",
+    "reportImplicitOverride": "warning",
+    "reportPropertyTypeMismatch": "warning"
+
+    // To enable at a later time:
+    // "reportMissingTypeArgument": "warning"
+}

@@ -7,7 +7,6 @@ from src.database.models.user import User
 import secrets
 from src.services.email_service import send_verification_email
 
-#  print("abc")
 
 async def create_user(db: AsyncSession, user: UserCreate) -> User:
     """
@@ -22,11 +21,16 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
     """
     hashed_password = utils.hash(user.password)
     verification_token = secrets.token_urlsafe(32)
-    new_user = User(**user.model_dump(exclude={"password"}), password=hashed_password, verification_token=verification_token, is_verified=False)
+    new_user = User(
+        **user.model_dump(exclude={"password"}),
+        password=hashed_password,
+        verification_token=verification_token,
+        is_verified=False
+    )
 
     db.add(new_user)
     await db.commit()
-   
+
     await db.refresh(new_user)
     try:
         await send_verification_email(new_user.email, verification_token)
@@ -54,7 +58,10 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
 
 
 async def update_user(
-    db: AsyncSession, user_id: int, user_data: UserUpdate
+    db: AsyncSession,
+    user_id: int,
+    user_data: UserUpdate | None,
+    image_url: str | None = None,
 ) -> User | None:
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -62,19 +69,36 @@ async def update_user(
     if not user:
         return None
 
-    update_data = user_data.model_dump(exclude_unset=True)
+    if user_data:
+        update_data = user_data.model_dump(exclude_unset=True)
 
-    for key, value in update_data.items():
-        setattr(user, key, value)
+        for key, value in update_data.items():
+            setattr(user, key, value)
+
+    if image_url:
+        user.profile_picture = image_url
 
     await db.commit()
     await db.refresh(user)
 
     return user
 
+
+# async def update_profile_picture(db, user_id: int, image_url: str):
+#     result = await db.execute(select(User).where(User.id == user_id))
+#     user = result.scalar_one_or_none()
+
+#     user.profile_picture = image_url
+
+#     await db.commit()
+#     await db.refresh(user)
+
+#     return user
+
+
 async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
     stmt = delete(User).where(User.id == user_id)
-    
+
     result = await db.execute(stmt)
     await db.commit()
 

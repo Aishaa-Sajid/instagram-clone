@@ -1,5 +1,5 @@
-from sqlalchemy import ForeignKey,Text,Boolean,TYPE_CHECKING
-from typing import List
+from sqlalchemy import ForeignKey,Text,Boolean
+from typing import List,TYPE_CHECKING
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql.expression import text
 from sqlalchemy.sql.sqltypes import TIMESTAMP
@@ -43,7 +43,6 @@ class Post(Base):
         back_populates="post",
         cascade="all, delete-orphan"
     )
-
     # images = relationship("PostImage", back_populates="post", cascade="all, delete-orphan")
     # comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     # likes = relationship("Like", back_populates="post", cascade="all, delete-orphan")

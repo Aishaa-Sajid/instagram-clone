@@ -12,7 +12,7 @@ class PostCreate(PostBase):
     pass
 
 class PostUpdate(BaseModel):
-    caption: Optional[str] = None
+    caption: str | None = None
 
 class PostResponse(PostBase):
     id: int
@@ -31,4 +31,3 @@ class PostOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-#  print("abc")   

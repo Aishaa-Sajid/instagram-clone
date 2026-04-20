@@ -46,7 +46,7 @@ async def login(
         "access_token": access_token,
         "token_type": "bearer",
     }
-#  print("abc") 
+
 @router.get("/verify-email")
 async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
 

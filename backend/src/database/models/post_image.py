@@ -1,6 +1,6 @@
 from datetime import datetime
-
-from sqlalchemy import ForeignKey, String, DateTime,TYPE_CHECKING
+from typing import TYPE_CHECKING
+from sqlalchemy import ForeignKey, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database.config import Base

@@ -22,10 +22,17 @@ class PostgresDatabaseSettings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int 
     ALGORITHM: str
     echo_sql: bool = False
+    
     SMTP_HOST: str
     SMTP_PORT: int
     SMTP_USER: str
     SMTP_PASS: str
+    MAIL_FROM: str
+ 
+    CLOUDINARY_CLOUD_NAME: str
+    CLOUDINARY_API_KEY: str
+    CLOUDINARY_API_SECRET: str
+
 
     class Config:
         env_file = ".env"

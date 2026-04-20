@@ -15,4 +15,3 @@ class PostImageResponse(PostImageBase):
 
     model_config = {"from_attributes": True}
 
-#  print("abc") 
