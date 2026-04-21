@@ -18,7 +18,18 @@ async def login(
     db: AsyncSession = Depends(get_pg_db),
 ):
     """
-    Authenticate user and return JWT token.
+    Authenticate a user and return a JWT access token.
+
+    This endpoint verifies the user's email and password. If the credentials
+    are valid and the user is verified, a JWT access token is generated and returned.
+
+    Args:
+        user_credentials (UserLogin): The request body containing user email and password.
+        db (AsyncSession): The asynchronous database session.
+
+    Returns:
+        Token: A dictionary containing the access token and token type.
+
     """
 
     user = await get_user_by_email(db, user_credentials.email)
@@ -38,8 +49,8 @@ async def login(
     if not user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Please verify your email first"
-    )
+            detail="Please verify your email first",
+        )
     access_token = security.create_access_token(data={"user_id": user.id})
 
     return {
@@ -47,12 +58,25 @@ async def login(
         "token_type": "bearer",
     }
 
+
 @router.get("/verify-email")
 async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
+    """
+    Verify a user's email using a verification token.
 
-    result = await db.execute(
-        select(User).where(User.verification_token == token)
-    )
+    This endpoint validates the provided token, marks the corresponding
+    user's email as verified, and removes the verification token from
+    the database.
+
+    Args:
+        token (str): The email verification token.
+        db (AsyncSession): The asynchronous database session.
+
+    Returns:
+        dict: A message indicating successful email verification.
+
+    """
+    result = await db.execute(select(User).where(User.verification_token == token))
     user = result.scalar_one_or_none()
 
     if not user:

@@ -12,6 +12,7 @@ class PostImageCreate(PostImageBase):
 class PostImageResponse(PostImageBase):
     image_id: int
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

@@ -1,15 +1,14 @@
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
 from datetime import datetime
 from typing import Optional,List
 from .user import UserOut
-from .post_image import PostImageResponse
+from .post_image import PostImageCreate, PostImageResponse
 
 class PostBase(BaseModel):
-    title: str
     caption: str
 
 class PostCreate(PostBase):
-    pass
+    images: List[PostImageCreate] = []
 
 class PostUpdate(BaseModel):
     caption: str | None = None
@@ -17,9 +16,9 @@ class PostUpdate(BaseModel):
 class PostResponse(PostBase):
     id: int
     created_at: datetime
-    owner_id: int
+    user_id: int
     owner: UserOut
-    images: List[PostImageResponse] = []
+    images: List[PostImageResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

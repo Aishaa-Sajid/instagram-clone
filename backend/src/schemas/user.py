@@ -9,11 +9,6 @@ class UserCreate(BaseModel):
     password: str
     is_private: bool = False
    
-
-
-class UserUpdate(BaseModel):
-    bio: str | None = None
-    is_private: str | None = None
     
 
 

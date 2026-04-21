@@ -5,11 +5,16 @@ router = APIRouter()
 
 
 class HealthCheck(BaseModel):
-    """Response model to validate and return when performing a health check."""
+    """
+    Response model used for health check endpoint.
 
+    This model represents the standard response returned when checking
+    the application's health status.
+    
+    """
     status: str = "OK"
 
-#  print("abc") 
+
 @router.get(
     "",
     tags=["Health Check"],
@@ -19,6 +24,12 @@ class HealthCheck(BaseModel):
 )
 def get_health() -> HealthCheck:
     """
-    Perform a Health Check
+    Check the health status of the application.
+
+    This endpoint is used to verify that the service is running correctly.
+    It returns a simple status response indicating the API is operational.
+
+    Returns:
+        HealthCheck: An object containing the current health status.
     """
     return HealthCheck(status="OK")

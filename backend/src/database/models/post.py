@@ -8,11 +8,10 @@ from src.database.config import Base
 if TYPE_CHECKING:
     from .post_image import PostImage
 
-#  
 class Post(Base):
     __tablename__ = "posts"
 
-    post_id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -20,7 +19,7 @@ class Post(Base):
         index=True
     )
 
-    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     
     created_at: Mapped[datetime] = mapped_column(
@@ -43,6 +42,6 @@ class Post(Base):
         back_populates="post",
         cascade="all, delete-orphan"
     )
-    # images = relationship("PostImage", back_populates="post", cascade="all, delete-orphan")
+
     # comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     # likes = relationship("Like", back_populates="post", cascade="all, delete-orphan")
