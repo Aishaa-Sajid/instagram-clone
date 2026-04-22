@@ -38,7 +38,7 @@ class PostgresDatabaseSettings(BaseSettings):
         env_file = ".env"
         extra = "ignore"
 
-#  print("abc")
+
 settings = PostgresDatabaseSettings()
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
 

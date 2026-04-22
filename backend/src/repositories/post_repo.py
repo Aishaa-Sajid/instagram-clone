@@ -1,207 +1,146 @@
-from typing_extensions import Annotated
-
-from fastapi import APIRouter, Depends, status, HTTPException, Query
+from fastapi import HTTPException, Response,status
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from src.database.dependency import get_pg_db
-from src.repositories import post_repo
-from sqlalchemy import select
-from src.core.security import get_current_user
-from src.schemas.post import PostResponse, PostCreate, PostOut
-from src.database.models import Post, User
+from src.database.models.post_image import PostImage
+from src.schemas.post import PostCreate
 
-router = APIRouter(tags=["Posts"])
+# from src.database.models.vote import Vote
+from src.database.models.post import Post
 
+async def get_post_by_id(db: AsyncSession, post_id: int):
+    stmt = (
+        select(Post)
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images)
+        )
+        .where(Post.id == post_id)
+    )
 
-#  print("abc")
-@router.get("/", response_model=list[PostOut])
-async def get_posts(
-    _: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_pg_db),
-    limit: int = 10,
-    skip: int = 0,
-    search: str | None = Query(default=None),
-):
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+async def get_posts(db: AsyncSession, limit: int, skip: int, search: str | None = None):
+    
     """
-    Retrieve a list of posts with pagination and optional search.
+        Retrieve a paginated list of posts with optional search filtering.
 
-    This endpoint returns a paginated list of posts for an authenticated user.
-    Results can be filtered using a search query.
+    This function queries the database for posts using SQLAlchemy 2.0 async
+    style. It supports pagination and optional filtering by post caption.
+    Related entities such as the post owner and images are eagerly loaded
+    using `selectinload` to avoid N+1 query issues.
 
     Args:
-        _ (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
-        limit (int, optional): Maximum number of posts to return. Defaults to 10.
-        skip (int, optional): Number of posts to skip for pagination. Defaults to 0.
-        search (str | None, optional): Search keyword to filter posts. Defaults to None.
+        db (AsyncSession): The asynchronous database session used for querying.
+        limit (int): Maximum number of posts to return.
+        skip (int): Number of posts to skip (used for pagination).
+        search (str | None, optional): Optional search string to filter posts
+            by caption (case-insensitive partial match). Defaults to None.
 
     Returns:
-        list[PostOut]: A list of posts matching the criteria.
-
+        list[dict]: A list of dictionaries, each containing a post object
+        under the key "post".
     """
+    stmt = (
+        select(Post)
+        .options(selectinload(Post.owner), selectinload(Post.images))
+        .limit(limit)
+        .offset(skip)
+    )
 
-    return await post_repo.get_posts(db, limit, skip, search)
+    if search:
+        stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
+    result = await db.execute(stmt)
 
-# @router.get("/no_auth", response_model=list[PostOut])
-# async def get_posts_no_auth(
-#     db: AsyncSession = Depends(get_pg_db),
-#     limit: int = 10,
-#     skip: int = 0,
-#     search: str | None = Query(default=None),
-# ):
-#     """
-#     Retrieve a list of posts without authentication.
+    posts = [{"post": post} for post in result.scalars().all()]
 
-#     This endpoint returns a paginated list of posts and allows optional
-#     filtering using a search query. Unlike the authenticated version,
-#     this route is publicly accessible.
-
-#     Args:
-#         db (AsyncSession): The asynchronous database session.
-#         limit (int, optional): Maximum number of posts to return. Defaults to 10.
-#         skip (int, optional): Number of posts to skip for pagination. Defaults to 0.
-#         search (str | None, optional): Search keyword to filter posts. Defaults to None.
-
-#     Returns:
-#         list[PostOut]: A list of posts matching the criteria.
-
-#     """
-#     return await post_repo.get_posts(db, limit, skip, search)
+    return posts
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=PostResponse)
-async def create_post(
-    post: PostCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_pg_db),
-):
+async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
-    Create a new post for the authenticated user.
+    Create a new post along with its associated images.
 
-    This endpoint allows an authenticated user to create a new post.
-    The post data is validated using the provided schema and stored
-    in the database.
+    This function inserts a new post into the database for the given user,
+    attaches up to 10 images to the post, and returns the fully populated
+    post including its owner and images.
 
     Args:
-        post (PostCreate): The request body containing post details.
-        current_user (User): The currently authenticated user (injected via dependency).
         db (AsyncSession): The asynchronous database session.
+        post (PostCreate): The post data containing caption and list of images.
+        user_id (int): The ID of the user creating the post.
 
     Returns:
-        PostResponse: The created post with its details.
+        Post: The newly created post with related images and owner loaded.
 
     """
-    return await post_repo.create_post(db, post, current_user.id)
+    if len(post.images) > 10:
+        raise Exception("A post can have maximum 10 images")
+
+    new_post = Post(caption=post.caption, user_id=user_id)
+
+    db.add(new_post)
+    await db.flush()
+
+    images = [
+        PostImage(post_id=new_post.id, image_url=image.image_url)
+        for image in post.images
+    ]
+
+    db.add_all(images)
+    await db.commit()
+    await db.refresh(new_post)
+
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.images), selectinload(Post.owner))
+        .where(Post.id == new_post.id)
+    )
+
+    new_post = result.scalar_one()
+    return new_post
 
 
-@router.get("/{id}", response_model=PostOut)
-async def get_post(
-    id: int,
-    db: AsyncSession = Depends(get_pg_db),
-    _=Depends(get_current_user),
-):
+async def get_post(db: AsyncSession, post_id: int):
     """
-    Retrieve a single post by its ID.
-
-    This endpoint fetches a post based on the provided ID. The user must
-    be authenticated to access this route. If the post does not exist,
-    a 404 error is returned.
-
-    Args:
-        id (int): The unique identifier of the post.
-        db (AsyncSession): The asynchronous database session.
-        _ (User): The currently authenticated user (injected via dependency).
-
-    Returns:
-        PostOut: The requested post data.
-
+    Fetch single post with vote count.
     """
-
-    post = await post_repo.get_post(db, id)
+    post = await get_post_by_id(db, post_id)
 
     if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id {id} not found"
-        )
+        return None
+
+    return {"post": post}
+
+
+async def delete_post(db: AsyncSession, post: Post):
+    """
+    Delete a post instance.
+    """
+    # stmt = select(Post).options(selectinload(Post.owner)).where(Post.id == id)
+    # result = await db.execute(stmt)
+    # post = result.scalar_one_or_none()
+
+    await db.delete(post)
+    await db.commit()
+
+    # return {"message": "Post deleted successfully"}
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def update_post(db: AsyncSession, post_id: int, caption: str | None = None):
+    """
+    Update post using async SQLAlchemy 2.0 style.
+    """
+  
+    post = await get_post_by_id(db, post_id)
+
+    if caption is not None:
+        post.caption = caption
+
+    await db.commit()
+    await db.refresh(post)
 
     return post
-
-
-@router.delete("/{id}", status_code=status.HTTP_200_OK)
-async def delete_post(
-    id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_pg_db),
-):
-    """
-    Delete a post by its ID (owner only).
-
-    This endpoint allows an authenticated user to delete a post they own.
-    It verifies that the post exists and that the requesting user is the
-    owner before performing the deletion.
-
-    Args:
-        id (int): The unique identifier of the post to delete.
-        current_user (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
-
-    Returns:
-        bool: True if the post was successfully deleted.
-
-    """
-
-    stmt = select(Post).options(selectinload(Post.owner)).where(Post.id == id)
-    result = await db.execute(stmt)
-    post = result.scalar_one_or_none()
-
-    if not post:
-        raise HTTPException(status_code=404, detail="post not found")
-
-    if post.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="You are not allowed to delete this post"
-        )
-
-    return await post_repo.delete_post(db, post)
-
-
-@router.put("/{id}", response_model=PostResponse)
-async def update_post(
-    id: int,
-    updated_post: PostCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_pg_db),
-):
-    """
-    Update an existing post by its ID (owner only).
-
-    This endpoint allows an authenticated user to update a post they own.
-    It checks whether the post exists and verifies ownership before applying
-    the updates.
-
-    Args:
-        id (int): The unique identifier of the post to update.
-        updated_post (PostCreate): The request body containing updated post data.
-        current_user (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
-
-    Returns:
-        PostResponse: The updated post data.
-
-    """
-    stmt = select(Post).options(selectinload(Post.owner)).where(Post.id == id)
-    result = await db.execute(stmt)
-    post = result.scalar_one_or_none()
-
-    if not post:
-        raise HTTPException(status_code=404, detail="post not found")
-
-    if post.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="You are not allowed to update this post"
-        )
-
-    updated = await post_repo.update_post(db, id, updated_post.model_dump())
-
-    return updated

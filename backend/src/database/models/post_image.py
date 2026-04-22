@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class PostImage(Base):
     __tablename__ = "post_images"
 
-    image_id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
     post_id: Mapped[int] = mapped_column(
         ForeignKey("posts.id", ondelete="CASCADE"),

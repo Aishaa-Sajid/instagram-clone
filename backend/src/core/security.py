@@ -69,7 +69,6 @@ credentials_exception = HTTPException(
 )
 
  
-#  print("abc")
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_pg_db),
@@ -88,7 +87,13 @@ async def get_current_user(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if user is None:
+    if not user:
         raise credentials_exception
+    
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email to access this resource",
+        )
 
     return user

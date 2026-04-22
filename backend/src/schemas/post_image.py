@@ -6,11 +6,12 @@ class PostImageBase(BaseModel):
 
 
 class PostImageCreate(PostImageBase):
-    post_id: int
+    pass
 
 
 class PostImageResponse(PostImageBase):
-    image_id: int
+    id: int
+    image_url: str
     created_at: datetime
     updated_at: datetime
 

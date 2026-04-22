@@ -32,7 +32,7 @@ class User(Base):
         nullable=False,
         server_default=text("now()")
     )
-#  print("abc")
+
     
     posts = relationship("Post", back_populates="owner", cascade="all, delete-orphan")
     # comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")

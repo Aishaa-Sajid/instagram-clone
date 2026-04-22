@@ -32,4 +32,3 @@ app.include_router(router=auth_api.router, prefix="/auth")
 app.include_router(router=user_api.router, prefix="/users")
 app.include_router(router=post_api.router, prefix="/posts")
 
-#  print("abc") 

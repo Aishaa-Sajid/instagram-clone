@@ -8,15 +8,14 @@ async def send_verification_email(email: str, token: str):
         sender = settings.SMTP_USER
         receiver = email
         password = settings.SMTP_PASS
-        port  = settings.SMTP_PORT
-        host  = settings.SMTP_HOST
+        port = settings.SMTP_PORT
+        host = settings.SMTP_HOST
         # Create message
         verification_link = f"http://localhost:8000/auth/verify-email?token={token}"
         message = f"""
         Click this link to verify your account:
         {verification_link}
         """
-
         msg = MIMEText(message)
         msg["Subject"] = "Verify your account"
         msg["From"] = sender
@@ -30,6 +29,4 @@ async def send_verification_email(email: str, token: str):
 
         print("Email sent!")
     except Exception as e:
-        print(" EMAIL FAILED:", e)
-
-#  print("abc") 
+        raise Exception("Failed to send verification email") from e

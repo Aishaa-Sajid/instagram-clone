@@ -8,6 +8,39 @@ import secrets
 from src.services.email_service import send_verification_email
 
 
+async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
+    """
+    Fetch a user by ID.
+
+    Args:
+        db (AsyncSession): database session
+        user_id (int): user id
+
+    Returns:
+        models.User | None
+    """
+
+    result = await db.execute(select(User).where(User.id == user_id))
+
+    return result.scalar_one_or_none()
+
+
+async def get_user_by_email(db: AsyncSession, email: str):
+    """
+    Fetch user by email from database.
+
+    Args:
+        db (AsyncSession): database session
+        email (str): user email
+
+    Returns:
+        User | None
+    """
+    result = await db.execute(select(User).where(User.email == email))
+
+    return result.scalars().first()
+
+
 async def create_user(db: AsyncSession, user: UserCreate) -> User:
     """
     Create a new user in the database.
@@ -28,33 +61,17 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
         is_verified=False
     )
 
+    try:
+        await send_verification_email(new_user.email, verification_token)
+    except Exception as e:
+        raise Exception("Failed to send verification email") from e
+    
     db.add(new_user)
     await db.commit()
 
     await db.refresh(new_user)
-    try:
-        await send_verification_email(new_user.email, verification_token)
-    except Exception as e:
-        print("EMAIL FAILED:", repr(e))
-
     return new_user
 
-
-async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
-    """
-    Fetch a user by ID.
-
-    Args:
-        db (AsyncSession): database session
-        user_id (int): user id
-
-    Returns:
-        models.User | None
-    """
-
-    result = await db.execute(select(User).where(User.id == user_id))
-
-    return result.scalar_one_or_none()
 
 
 async def update_user(
@@ -83,8 +100,9 @@ async def update_user(
         User | None: The updated user object if found, otherwise None.
 
     """
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    # result = await db.execute(select(User).where(User.id == user_id))
+    # user = result.scalar_one_or_none()
+    user=await get_user_by_id(db, user_id)
 
     if not user:
         return None

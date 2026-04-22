@@ -4,7 +4,7 @@ from src.database.models.user import User
 from src.database.dependency import get_pg_db
 from src import utils
 from src.core import security
-from src.repositories.auth_repo import get_user_by_email
+from src.repositories.user_repo import get_user_by_email
 from src.schemas.auth import Token
 from src.schemas.user import UserLogin
 from sqlalchemy import select
@@ -16,7 +16,7 @@ router = APIRouter(tags=["Authentication"])
 async def login(
     user_credentials: UserLogin,
     db: AsyncSession = Depends(get_pg_db),
-):
+) -> Token:
     """
     Authenticate a user and return a JWT access token.
 
@@ -34,30 +34,25 @@ async def login(
 
     user = await get_user_by_email(db, user_credentials.email)
 
+    invalid_credentials_exception = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Invalid Credentials",
+)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid Credentials",
-        )
+        raise invalid_credentials_exception
 
     if not utils.verify(user_credentials.password, user.password):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid Credentials",
-        )
+        raise invalid_credentials_exception
 
     if not user.is_verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Please verify your email first",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Please verify your email before logging in",
         )
+    
     access_token = security.create_access_token(data={"user_id": user.id})
 
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-    }
-
+    return Token(access_token=access_token, token_type="bearer")
 
 @router.get("/verify-email")
 async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):

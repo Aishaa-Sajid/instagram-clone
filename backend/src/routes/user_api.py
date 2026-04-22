@@ -6,6 +6,7 @@ from src.schemas.user import UserCreate, UserOut
 from src.services.Cloudinary.cloudinary_service import upload_image
 from src.core.security import get_current_user
 from typing_extensions import Annotated
+from src.database.models import User
 
 router = APIRouter(tags=["Users"])
 
@@ -25,8 +26,11 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_pg_db)):
     Returns:
         UserOut: The created user data.
     """
-
-    return await user_repo.create_user(db, user)
+    try:
+        return await user_repo.create_user(db, user)
+    except Exception as e:
+       return HTTPException(status_code=400, detail=str(e))
+    
 
 
 @router.get("/{id}", response_model=UserOut)
@@ -79,7 +83,7 @@ async def update_user(
     is_private: bool | None = None,
     file: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_pg_db),
-    current_user=Annotated[UserOut, Depends(get_current_user)],
+    current_user: User = Depends(get_current_user),
 ):
     """
      Update user profile details (authenticated user).
@@ -115,7 +119,7 @@ async def update_user(
         )
       
 
-    image_url = await upload_image(file) if file else None
+    image_url = await upload_image(file, folder="profile_pics") if file else None
 
     updated_user = await user_repo.update_user(
         db=db,

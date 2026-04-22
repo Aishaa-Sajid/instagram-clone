@@ -1,16 +1,38 @@
+import asyncio
+from typing import List
 from typing_extensions import Annotated
-
 from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from src.schemas.post_image import PostImageCreate
 from src.database.dependency import get_pg_db
 from src.repositories import post_repo
 from sqlalchemy import select
 from src.core.security import get_current_user
-from src.schemas.post import PostResponse, PostCreate, PostOut
+from src.schemas.post import PostResponse, PostCreate, PostOut, PostUpdate
 from src.database.models import Post, User
+from src.services.Cloudinary.cloudinary_service import upload_image
+from fastapi import UploadFile, File, Form
 
 router = APIRouter(tags=["Posts"])
+
+# @router.post("/upload")
+# async def upload_files(
+#     files: Annotated[list[UploadFile], File(...)]
+# ):
+#     results = []
+
+#     for file in files:
+#         content = await file.read()
+
+#         # Example: just returning metadata
+#         results.append({
+#             "filename": file.filename,
+#             "content_type": file.content_type,
+#             "size": len(content)
+#         })
+
+#     return {"files": results}
 
 
 @router.get("/", response_model=list[PostOut])
@@ -43,38 +65,39 @@ async def get_posts(
     return await post_repo.get_posts(db, limit, skip, search)
 
 
-@router.get("/no_auth", response_model=list[PostOut])
-async def get_posts_no_auth(
-    db: AsyncSession = Depends(get_pg_db),
-    limit: int = 10,
-    skip: int = 0,
-    search: str | None = Query(default=None),
-):
-    """
-    Retrieve a list of posts without authentication.
+# @router.get("/no_auth", response_model=list[PostOut])
+# async def get_posts_no_auth(
+#     db: AsyncSession = Depends(get_pg_db),
+#     limit: int = 10,
+#     skip: int = 0,
+#     search: str | None = Query(default=None),
+# ):
+#     """
+#     Retrieve a list of posts without authentication.
 
-    This endpoint returns posts in a paginated format and allows optional
-    filtering using a search query. It is publicly accessible and does not
-    require user authentication.
+#     This endpoint returns posts in a paginated format and allows optional
+#     filtering using a search query. It is publicly accessible and does not
+#     require user authentication.
 
-    Args:
-        db (AsyncSession): The asynchronous database session.
-        limit (int, optional): Maximum number of posts to return. Defaults to 10.
-        skip (int, optional): Number of posts to skip for pagination. Defaults to 0.
-        search (str | None, optional): Optional search keyword to filter posts.
-            Defaults to None.
+#     Args:
+#         db (AsyncSession): The asynchronous database session.
+#         limit (int, optional): Maximum number of posts to return. Defaults to 10.
+#         skip (int, optional): Number of posts to skip for pagination. Defaults to 0.
+#         search (str | None, optional): Optional search keyword to filter posts.
+#             Defaults to None.
 
-    Returns:
-        list[PostOut]: A list of posts matching the given criteria.
-    """
-    return await post_repo.get_posts(db, limit, skip, search)
+#     Returns:
+#         list[PostOut]: A list of posts matching the given criteria.
+#     """
+#     return await post_repo.get_posts(db, limit, skip, search)
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=PostResponse)
 async def create_post(
-    post: PostCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    files: Annotated[list[UploadFile], File(..., description="Upload up to 10 images")],
+    caption: Annotated[str, Form(...)],
     db: AsyncSession = Depends(get_pg_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Create a new post for the authenticated user.
@@ -83,14 +106,29 @@ async def create_post(
     The provided post data is validated and stored in the database.
 
     Args:
-        post (PostCreate): The request body containing post details.
+        caption (str): The caption for the new post.
+        files (list[UploadFile]): The list of image files to upload.
         current_user (User): The currently authenticated user (injected via dependency).
         db (AsyncSession): The asynchronous database session.
 
     Returns:
-        PostResponse: The created post with full details.
+        PostResponse: The created post with full details
     """
-    return await post_repo.create_post(db, post, current_user.id)
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    if len(files) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 images allowed")
+
+    upload_tasks = [upload_image(file, folder="post_images") for file in files]
+    image_urls = await asyncio.gather(*upload_tasks)
+
+    post_data = PostCreate(
+        caption=caption,
+        images=[PostImageCreate(image_url=url) for url in image_urls],
+    )
+
+    return await post_repo.create_post(db=db, post=post_data, user_id=current_user.id)
 
 
 @router.get("/{id}", response_model=PostOut)
@@ -146,26 +184,23 @@ async def delete_post(
     Returns:
         bool: True if the post was successfully deleted.
     """
-
-    stmt = select(Post).options(selectinload(Post.owner)).where(Post.id == id)
-    result = await db.execute(stmt)
-    post = result.scalar_one_or_none()
+    post = await post_repo.get_post_by_id(db, id)
 
     if not post:
         raise HTTPException(status_code=404, detail="post not found")
 
-    if post.owner_id != current_user.id:
+    if post.user_id != current_user.id:
         raise HTTPException(
             status_code=403, detail="You are not allowed to delete this post"
         )
 
-    return await post_repo.delete_post(db, post)
+    await post_repo.delete_post(db, post)
 
 
 @router.put("/{id}", response_model=PostResponse)
 async def update_post(
     id: int,
-    updated_post: PostCreate,
+    updated_post: PostUpdate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_pg_db),
 ):
@@ -185,18 +220,17 @@ async def update_post(
     Returns:
         PostResponse: The updated post with full details.
     """
-    stmt = select(Post).options(selectinload(Post.owner)).where(Post.id == id)
-    result = await db.execute(stmt)
-    post = result.scalar_one_or_none()
+
+    post = await post_repo.get_post_by_id(db, id)
 
     if not post:
         raise HTTPException(status_code=404, detail="post not found")
 
-    if post.owner_id != current_user.id:
+    if post.user_id != current_user.id:
         raise HTTPException(
             status_code=403, detail="You are not allowed to update this post"
         )
 
-    updated = await post_repo.update_post(db, id, updated_post.model_dump())
+    updated = await post_repo.update_post(db, id, caption=updated_post.caption)
 
     return updated
