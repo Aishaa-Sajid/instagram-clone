@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.database.dependency import get_pg_db
+from src.dependencies.database import get_pg_db
 from src.repositories import user_repo
 from src.schemas.user import UserCreate, UserOut
 from src.services.Cloudinary.cloudinary_service import upload_image
-from src.core.security import get_current_user
+from src.dependencies.auth import get_current_user
 from typing_extensions import Annotated
 from src.database.models import User
 
@@ -29,8 +29,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_pg_db)):
     try:
         return await user_repo.create_user(db, user)
     except Exception as e:
-       return HTTPException(status_code=400, detail=str(e))
-    
+        return HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{id}", response_model=UserOut)
@@ -61,23 +60,7 @@ async def get_user(id: int, db: AsyncSession = Depends(get_pg_db)):
 
     return user
 
-
-# @router.put("/upload-profile-picture")
-# async def upload_profile_picture(
-#     file: UploadFile,
-#     db: AsyncSession = Depends(get_pg_db),
-#     current_user=Depends(get_current_user),
-# ):
-
-#     # image_bytes = await file
-#     image_url = await upload_image(file)
-
-#     user = await user_repo.update_profile_picture(db, current_user.id, image_url)
-
-#     return {"message": "Profile picture updated", "url": image_url}
-
-
-@router.put("/update-profile",response_model=UserOut)
+@router.put("/update-profile", response_model=UserOut)
 async def update_user(
     bio: str | None = None,
     is_private: bool | None = None,
@@ -104,20 +87,12 @@ async def update_user(
     Returns:
         User: The updated user object.
     """
-
-    # if current_user.id != id:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="Not authorized"
-    #     )
-    
     user = await user_repo.get_user_by_id(db, current_user.id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with id {current_user.id} does not exist",
         )
-      
 
     image_url = await upload_image(file, folder="profile_pics") if file else None
 
@@ -126,50 +101,10 @@ async def update_user(
         user_id=current_user.id,
         bio=bio,
         is_private=is_private,
-        image_url=image_url
+        image_url=image_url,
     )
 
-
     return updated_user
-
-
-# @router.put("/{id}", response_model=UserOut)
-# async def update_user(
-#     id: int,
-#     file: UploadFile | None = File(default=None),
-#     user_update: str | None = Form(default=None),
-#     db: AsyncSession = Depends(get_pg_db),
-#     current_user=Depends(get_current_user),
-# ):
-#     # 🔐 authorization
-#     if current_user.id != id:
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized"
-#         )
-
-#     user = await user_repo.get_user_by_id(db, id)
-
-#     if not user:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"User with id {id} does not exist",
-#         )
-
-#     # 🧠 clean + protected
-#     update_data = None
-#     if user_update:
-#         try:
-#             update_data = UserUpdate(**json.loads(user_update))
-#         except Exception:
-#             raise HTTPException(status_code=400, detail="Invalid user_update JSON")
-
-#     # 🖼️ upload image if present
-#     image_url = await upload_image(file) if file else None
-
-#     # 🚀 update user
-#     updated_user = await user_repo.update_user(db, id, update_data, image_url)
-
-#     return updated_user
 
 
 @router.delete("/users/{user_id}")

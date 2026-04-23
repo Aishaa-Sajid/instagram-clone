@@ -10,8 +10,9 @@ class HealthCheck(BaseModel):
 
     This model represents the standard response returned when checking
     the application's health status.
-    
+
     """
+
     status: str = "OK"
 
 

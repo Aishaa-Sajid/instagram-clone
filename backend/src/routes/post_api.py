@@ -4,11 +4,12 @@ from typing_extensions import Annotated
 from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from src.database.models.post_image import PostImage
 from src.schemas.post_image import PostImageCreate
-from src.database.dependency import get_pg_db
+from src.dependencies.database import get_pg_db
 from src.repositories import post_repo
 from sqlalchemy import select
-from src.core.security import get_current_user
+from src.dependencies.auth import get_current_user
 from src.schemas.post import PostResponse, PostCreate, PostOut, PostUpdate
 from src.database.models import Post, User
 from src.services.Cloudinary.cloudinary_service import upload_image
@@ -16,26 +17,8 @@ from fastapi import UploadFile, File, Form
 
 router = APIRouter(tags=["Posts"])
 
-# @router.post("/upload")
-# async def upload_files(
-#     files: Annotated[list[UploadFile], File(...)]
-# ):
-#     results = []
 
-#     for file in files:
-#         content = await file.read()
-
-#         # Example: just returning metadata
-#         results.append({
-#             "filename": file.filename,
-#             "content_type": file.content_type,
-#             "size": len(content)
-#         })
-
-#     return {"files": results}
-
-
-@router.get("/", response_model=list[PostOut])
+@router.get("/", response_model=list[PostResponse])
 async def get_posts(
     _: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_pg_db),
@@ -65,7 +48,7 @@ async def get_posts(
     return await post_repo.get_posts(db, limit, skip, search)
 
 
-# @router.get("/no_auth", response_model=list[PostOut])
+# @router.get("/no_auth", response_model=list[PostResponse])
 # async def get_posts_no_auth(
 #     db: AsyncSession = Depends(get_pg_db),
 #     limit: int = 10,
@@ -131,7 +114,7 @@ async def create_post(
     return await post_repo.create_post(db=db, post=post_data, user_id=current_user.id)
 
 
-@router.get("/{id}", response_model=PostOut)
+@router.get("/{id}", response_model=PostResponse)
 async def get_post(
     id: int,
     db: AsyncSession = Depends(get_pg_db),
@@ -161,6 +144,59 @@ async def get_post(
         )
 
     return post
+
+
+@router.put("/{id}", response_model=PostResponse)
+async def update_post(
+    id: int,
+    caption: str | None = Form(None),
+    images_to_delete: list[int] = Form(default_factory=list),
+    new_images: list[UploadFile] = File(default_factory=list),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+    db: AsyncSession = Depends(get_pg_db),
+):
+    """
+    Update a post including caption and images.
+
+    This endpoint allows partial updates to a post. It supports updating
+    the caption, deleting selected images, and uploading new images. New
+    images are uploaded asynchronously before being associated with the
+    post.
+
+    The function delegates the core update logic to the repository layer
+    after preparing the uploaded image URLs and converting them into
+    PostImage objects.
+
+    Args:
+        id (int): ID of the post to update.
+        caption (str | None): Optional updated caption for the post.
+        images_to_delete (list[int]): List of image IDs to remove from
+            the post.
+        new_images (list[UploadFile]): List of new image files to upload
+            and attach to the post.
+        current_user (User): Authenticated user performing the request.
+        db (AsyncSession): Asynchronous database session dependency.
+
+    Returns:
+        PostResponse: The updated post data after successful modification.
+    """
+    uploaded_urls = []
+
+    if new_images:
+        uploaded_urls = await asyncio.gather(
+            *[upload_image(file, folder="updated_posts") for file in new_images]
+        )
+
+    post_image_objs = [PostImage(image_url=url) for url in uploaded_urls]
+
+    return await post_repo.update_post_repo(
+        db=db,
+        post_id=id,
+        user_id=current_user.id,
+        caption=caption,
+        new_images=post_image_objs,
+        images_to_delete=images_to_delete,
+    )
 
 
 @router.delete("/{id}", status_code=status.HTTP_200_OK)
@@ -195,42 +231,3 @@ async def delete_post(
         )
 
     await post_repo.delete_post(db, post)
-
-
-@router.put("/{id}", response_model=PostResponse)
-async def update_post(
-    id: int,
-    updated_post: PostUpdate,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_pg_db),
-):
-    """
-    Update an existing post by its ID (owner only).
-
-    This endpoint allows an authenticated user to update a post they own.
-    It verifies that the post exists and checks ownership before applying
-    the updates.
-
-    Args:
-        id (int): The unique identifier of the post to update.
-        updated_post (PostCreate): The request body containing updated post data.
-        current_user (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
-
-    Returns:
-        PostResponse: The updated post with full details.
-    """
-
-    post = await post_repo.get_post_by_id(db, id)
-
-    if not post:
-        raise HTTPException(status_code=404, detail="post not found")
-
-    if post.user_id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="You are not allowed to update this post"
-        )
-
-    updated = await post_repo.update_post(db, id, caption=updated_post.caption)
-
-    return updated

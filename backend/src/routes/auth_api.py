@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.user import User
-from src.database.dependency import get_pg_db
+from src.dependencies.database import get_pg_db
 from src import utils
 from src.core import security
 from src.repositories.user_repo import get_user_by_email
 from src.schemas.auth import Token
 from src.schemas.user import UserLogin
 from sqlalchemy import select
+from src.schemas.mail_response import VerifyEmailResponse
 
 router = APIRouter(tags=["Authentication"])
 
@@ -35,9 +36,9 @@ async def login(
     user = await get_user_by_email(db, user_credentials.email)
 
     invalid_credentials_exception = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Invalid Credentials",
-)
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid Credentials",
+    )
     if not user:
         raise invalid_credentials_exception
 
@@ -49,10 +50,11 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please verify your email before logging in",
         )
-    
+
     access_token = security.create_access_token(data={"user_id": user.id})
 
     return Token(access_token=access_token, token_type="bearer")
+
 
 @router.get("/verify-email")
 async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
@@ -82,4 +84,4 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
 
     await db.commit()
 
-    return {"message": "Email verified successfully"}
+    return VerifyEmailResponse(message="Email verified successfully")

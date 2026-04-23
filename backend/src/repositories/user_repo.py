@@ -1,6 +1,6 @@
-from sqlalchemy import delete, select
+from datetime import datetime, timezone
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src import utils
 from src.schemas.user import UserCreate, UserOut
 from src.database.models.user import User
@@ -20,7 +20,7 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
         models.User | None
     """
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id), User.deleted_at.is_(None))
 
     return result.scalar_one_or_none()
 
@@ -36,7 +36,7 @@ async def get_user_by_email(db: AsyncSession, email: str):
     Returns:
         User | None
     """
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(User.email == email), User.deleted_at.is_(None))
 
     return result.scalars().first()
 
@@ -65,13 +65,12 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
         await send_verification_email(new_user.email, verification_token)
     except Exception as e:
         raise Exception("Failed to send verification email") from e
-    
+
     db.add(new_user)
     await db.commit()
 
     await db.refresh(new_user)
     return new_user
-
 
 
 async def update_user(
@@ -100,9 +99,8 @@ async def update_user(
         User | None: The updated user object if found, otherwise None.
 
     """
-    # result = await db.execute(select(User).where(User.id == user_id))
-    # user = result.scalar_one_or_none()
-    user=await get_user_by_id(db, user_id)
+
+    user = await get_user_by_id(db, user_id)
 
     if not user:
         return None
@@ -122,18 +120,6 @@ async def update_user(
     return user
 
 
-# async def update_profile_picture(db, user_id: int, image_url: str):
-#     result = await db.execute(select(User).where(User.id == user_id))
-#     user = result.scalar_one_or_none()
-
-#     user.profile_picture = image_url
-
-#     await db.commit()
-#     await db.refresh(user)
-
-#     return user
-
-
 async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
     """
     Delete a user from the database by their ID.
@@ -149,10 +135,14 @@ async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
         bool: True if a user was deleted, False if no matching user was found.
 
     """
-    stmt = delete(User).where(User.id == user_id)
+    # stmt = delete(User).where(User.id == user_id)
+    stmt = (
+        update(User)
+        .where(User.id == user_id, User.deleted_at.is_(None))
+        .values(deleted_at=datetime.now(timezone.utc))
+    )
 
     result = await db.execute(stmt)
     await db.commit()
 
-    # result.rowcount tells how many rows were deleted
     return result.rowcount > 0

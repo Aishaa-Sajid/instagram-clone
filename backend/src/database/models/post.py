@@ -1,46 +1,30 @@
-from sqlalchemy import ForeignKey,Text,Boolean
-from typing import List,TYPE_CHECKING
+from sqlalchemy import ForeignKey, Text, Boolean
+from typing import List, TYPE_CHECKING
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql.expression import text
-from sqlalchemy.sql.sqltypes import TIMESTAMP
-from datetime import datetime
+from src.database.models.mixins import TimestampMixin
 from src.database.config import Base
-if TYPE_CHECKING:
-    from .post_image import PostImage
 
-class Post(Base):
+if TYPE_CHECKING:
+    from src.database.models.post_image import PostImage
+
+
+class Post(TimestampMixin, Base):
     __tablename__ = "posts"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    
-    created_at: Mapped[datetime] = mapped_column(
-    TIMESTAMP(timezone=True),
-    nullable=False,
-    server_default=text("now()")
-)
-
-    updated_at: Mapped[datetime] = mapped_column(
-    TIMESTAMP(timezone=True),
-    nullable=False,
-    server_default=text("now()"),
-    onupdate=text("now()")
-)
 
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     owner = relationship("User", back_populates="posts")
 
     images: Mapped[List["PostImage"]] = relationship(
-        back_populates="post",
-        cascade="all, delete-orphan"
+        back_populates="post", cascade="all, delete-orphan"
     )
 
     # comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
