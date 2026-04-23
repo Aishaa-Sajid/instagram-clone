@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -8,6 +10,9 @@ class PostImageBase(BaseModel):
 class PostImageCreate(PostImageBase):
     pass
 
+class PostImageUpdate(BaseModel):
+    id: int| None = None   
+    image_url: str             
 
 class PostImageResponse(PostImageBase):
     id: int

@@ -11,32 +11,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 from loguru import logger
 
-
-# Async session management, ORM base setup
-# --------------------------
-# Settings
-# --------------------------
-class PostgresDatabaseSettings(BaseSettings):
-    DATABASE_URL: str
-    SECRET_KEY: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int 
-    ALGORITHM: str
-    echo_sql: bool = False
-    
-    SMTP_HOST: str
-    SMTP_PORT: int
-    SMTP_USER: str
-    SMTP_PASS: str
-    MAIL_FROM: str
- 
-    CLOUDINARY_CLOUD_NAME: str
-    CLOUDINARY_API_KEY: str
-    CLOUDINARY_API_SECRET: str
-
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+from src.core.settings import PostgresDatabaseSettings
 
 
 settings = PostgresDatabaseSettings()
@@ -135,13 +110,3 @@ sessionmanager = DatabaseSessionManager(
     {"echo": settings.echo_sql, "pool_pre_ping": True},
 )
 
-
-# --------------------------
-# Dependency for FastAPI
-# --------------------------
-# async def get_pg_db() -> AsyncIterator[AsyncSession]:
-#     """FastAPI dependency to provide a DB session."""
-#     logger.debug("Acquiring DB session via dependency")
-#     async with sessionmanager.session() as session:
-#         yield session
-#     logger.debug("DB session released via dependency")
