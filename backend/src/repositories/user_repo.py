@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from src import utils
+from src.utils.password_verification import hash
 from src.schemas.user import UserCreate, UserOut
 from src.database.models.user import User
 import secrets
@@ -36,7 +36,7 @@ async def get_user_by_email(db: AsyncSession, email: str):
     Returns:
         User | None
     """
-    result = await db.execute(select(User).where(User.email == email), User.deleted_at.is_(None))
+    result = await db.execute(select(User).where(User.email == email, User.deleted_at.is_(None)))
 
     return result.scalars().first()
 
@@ -52,7 +52,7 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
     Returns:
         models.User: created user instance
     """
-    hashed_password = utils.hash(user.password)
+    hashed_password = hash(user.password)
     verification_token = secrets.token_urlsafe(32)
     new_user = User(
         **user.model_dump(exclude={"password"}),
@@ -135,7 +135,7 @@ async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
         bool: True if a user was deleted, False if no matching user was found.
 
     """
-    # stmt = delete(User).where(User.id == user_id)
+    
     stmt = (
         update(User)
         .where(User.id == user_id, User.deleted_at.is_(None))

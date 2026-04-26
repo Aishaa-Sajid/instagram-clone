@@ -8,12 +8,16 @@ class PostImageBase(BaseModel):
 
 
 class PostImageCreate(PostImageBase):
-    pass
+    public_id: str
 
 class PostImageUpdate(BaseModel):
     id: int| None = None   
     image_url: str             
 
+class PostUploadImage(BaseModel):
+    url:str
+    public_id:str
+    
 class PostImageResponse(PostImageBase):
     id: int
     image_url: str
