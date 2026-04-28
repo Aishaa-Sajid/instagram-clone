@@ -9,7 +9,7 @@ from src.schemas.post_image import PostImageCreate, PostUploadImage
 from src.dependencies.database import get_pg_db
 from src.repositories import post_repo
 from src.dependencies.auth import get_current_user
-from src.schemas.post import PostResponse, PostCreate, PostOut, PostUpdate
+from src.schemas.post import PostResponse, PostCreate, PostUpdate
 from src.database.models import Post, User
 from src.services.cloudinary.cloudinary_service import upload_image
 from fastapi import UploadFile, File, Form
@@ -20,7 +20,7 @@ router = APIRouter(tags=["Posts"])
 
 @router.get("/", response_model=list[PostResponse])
 async def get_posts(
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_pg_db),
     limit: int = 10,
     skip: int = 0,
@@ -42,10 +42,10 @@ async def get_posts(
             Defaults to None.
 
     Returns:
-        list[PostOut]: A list of posts matching the given criteria.
+        list[PostResponse]: A list of posts matching the given criteria.
 
     """
-    return await post_repo.get_posts(db, limit, skip, search)
+    return await post_repo.get_posts(db=db, limit=limit, skip=skip, search=search,user_id=current_user.id)
 
 
 # @router.get("/no_auth", response_model=list[PostResponse])
@@ -70,7 +70,7 @@ async def get_posts(
 #             Defaults to None.
 
 #     Returns:
-#         list[PostOut]: A list of posts matching the given criteria.
+#         list[PostResponse]: A list of posts matching the given criteria.
 #     """
 #     return await post_repo.get_posts(db, limit, skip, search)
 
@@ -127,7 +127,7 @@ async def create_post(
 async def get_post(
     id: int,
     db: AsyncSession = Depends(get_pg_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """
     Retrieve a single post by its ID.
@@ -142,10 +142,10 @@ async def get_post(
         _ (User): The currently authenticated user (injected via dependency).
 
     Returns:
-        PostOut: The requested post data.
+        PostResponse: The requested post data.
     """
 
-    post = await post_repo.get_post(db, id)
+    post = await post_repo.get_post(db=db, post_id=id,user_id=current_user.id)
 
     if not post:
         raise HTTPException(

@@ -21,6 +21,7 @@ class PostUploadImage(BaseModel):
 class PostImageResponse(PostImageBase):
     id: int
     image_url: str
+    public_id:str
     created_at: datetime
     updated_at: datetime
 

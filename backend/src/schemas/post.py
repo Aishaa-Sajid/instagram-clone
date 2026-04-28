@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, List
 from src.schemas.user import UserOut
 from src.schemas.post_image import PostImageCreate, PostImageResponse, PostImageUpdate
-
+from src.schemas.like import LikeResponse
 
 class PostBase(BaseModel):
     caption: str | None = None
@@ -27,12 +27,14 @@ class PostResponse(PostBase):
     user_id: int
     owner: UserOut
     images: List[PostImageResponse] = Field(default_factory=list)
-
+    likes_count: int = 0
+    is_liked: bool = False
+    
     model_config = {"from_attributes": True}
 
 
-class PostOut(BaseModel):
-    post: PostResponse
-    # likes: int
+# class PostOut(BaseModel):
+#     post: PostResponse
+#     likes: LikeResponse
 
-    model_config = {"from_attributes": True}
+#     model_config = {"from_attributes": True}

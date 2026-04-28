@@ -30,10 +30,10 @@ class User(TimestampMixin, Base):
         nullable=True,
         default=None,
     )
-    
+
     posts = relationship("Post", back_populates="owner", cascade="all, delete-orphan")
-    # comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
-    # likes = relationship("Like", back_populates="user", cascade="all, delete-orphan")
+    likes = relationship("Like", back_populates="user", cascade="all, delete-orphan")
+    comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
 
     # stories = relationship("Story", back_populates="user", cascade="all, delete-orphan")
 

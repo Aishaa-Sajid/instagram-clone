@@ -11,7 +11,7 @@ from src.repositories.post_image_repo import _add_post_images,_delete_post_image
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     stmt = (
         select(Post)
-        .options(selectinload(Post.owner), selectinload(Post.images))
+        .options(selectinload(Post.owner), selectinload(Post.images),selectinload(Post.likes))
         .where(Post.id == post_id)
     )
 
@@ -20,7 +20,7 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
 
 
 async def get_posts(
-    db: AsyncSession, limit: int, skip: int, search: str | None = None
+    db: AsyncSession,*, limit: int, skip: int,  user_id:int,search: str | None = None,
 ) -> list[Post]:
     """
         Retrieve a paginated list of posts with optional search filtering.
@@ -42,7 +42,7 @@ async def get_posts(
     """
     stmt = (
         select(Post)
-        .options(selectinload(Post.owner), selectinload(Post.images))
+        .options(selectinload(Post.owner), selectinload(Post.images),selectinload(Post.likes))
         .limit(limit)
         .offset(skip)
     )
@@ -51,7 +51,31 @@ async def get_posts(
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
     result = await db.execute(stmt)
-    return result.scalars().all()
+    posts= result.scalars().all()
+    response = []
+
+    for post in posts:
+        likes_count = len(post.likes)
+
+        is_liked = False
+        if user_id:
+            is_liked = any(like.user_id == user_id for like in post.likes)
+
+        response.append(
+            PostResponse(
+                id=post.id,
+                caption=post.caption,
+                created_at=post.created_at,
+                updated_at=post.updated_at,
+                user_id=post.user_id,
+                owner=post.owner,
+                images=post.images,
+                likes_count=likes_count,
+                is_liked=is_liked,
+            )
+        )
+
+    return response
 
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
@@ -102,7 +126,7 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
         raise HTTPException(status_code=500, detail=f"Failed to create post: {str(e)}")
 
 
-async def get_post(db: AsyncSession, post_id: int) -> Post | None:
+async def get_post(db: AsyncSession, post_id: int, user_id:int) -> PostResponse | None:
     """
     Retrieve a single post by its ID.
 
@@ -122,8 +146,25 @@ async def get_post(db: AsyncSession, post_id: int) -> Post | None:
     if not post:
         return None
 
-    return post
+    # return post
+    likes_count = len(post.likes)
+    
+    is_liked = any(
+        like.user_id == user_id for like in post.likes
+    )
 
+    return PostResponse(
+        id=post.id,
+        caption=post.caption,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+        user_id=post.user_id,
+        owner=post.owner,
+        images=post.images,
+        likes_count=likes_count,
+        is_liked=is_liked,
+    )
+    
 
 async def delete_post(db: AsyncSession, post: Post):
     """
