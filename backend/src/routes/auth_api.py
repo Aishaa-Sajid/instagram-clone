@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.user import User
 from src.dependencies.database import get_pg_db
-from src import utils
+from src.utils.password_verification import hash, verify
 from src.core import security
 from src.repositories.user_repo import get_user_by_email
 from src.schemas.auth import Token
@@ -42,7 +42,7 @@ async def login(
     if not user:
         raise invalid_credentials_exception
 
-    if not utils.verify(user_credentials.password, user.password):
+    if not verify(user_credentials.password, user.password):
         raise invalid_credentials_exception
 
     if not user.is_verified:

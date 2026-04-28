@@ -18,5 +18,6 @@ class PostImage(TimestampMixin, Base):
     )
 
     image_url: Mapped[str] = mapped_column(String, nullable=False)
+    public_id: Mapped[str] = mapped_column(String, nullable=False)
 
     post: Mapped["Post"] = relationship("Post", back_populates="images")

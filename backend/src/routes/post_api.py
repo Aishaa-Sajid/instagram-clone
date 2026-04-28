@@ -3,17 +3,17 @@ from typing import List
 from typing_extensions import Annotated
 from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from src.core.constants import MAX_IMAGES
 from src.database.models.post_image import PostImage
-from src.schemas.post_image import PostImageCreate
+from src.schemas.post_image import PostImageCreate, PostUploadImage
 from src.dependencies.database import get_pg_db
 from src.repositories import post_repo
-from sqlalchemy import select
 from src.dependencies.auth import get_current_user
 from src.schemas.post import PostResponse, PostCreate, PostOut, PostUpdate
 from src.database.models import Post, User
-from src.services.Cloudinary.cloudinary_service import upload_image
+from src.services.cloudinary.cloudinary_service import upload_image
 from fastapi import UploadFile, File, Form
+from src.utils.file_validators import validate_files
 
 router = APIRouter(tags=["Posts"])
 
@@ -97,21 +97,30 @@ async def create_post(
     Returns:
         PostResponse: The created post with full details
     """
-    if not files:
-        raise HTTPException(status_code=400, detail="At least one image is required")
+    try:
+        if not files:
+            raise HTTPException(
+                status_code=400, detail="At least one image is required"
+            )
+        
+        await validate_files(files)
 
-    if len(files) > 10:
-        raise HTTPException(status_code=400, detail="Maximum 10 images allowed")
+        upload_tasks = [upload_image(file, folder="post_images") for file in files]
+        image_urls = await asyncio.gather(*upload_tasks)
 
-    upload_tasks = [upload_image(file, folder="post_images") for file in files]
-    image_urls = await asyncio.gather(*upload_tasks)
+        post_data = PostCreate(
+            caption=caption,
+            images=[PostImageCreate(image_url=img.url,public_id=img.public_id) for img in image_urls],
+        )
 
-    post_data = PostCreate(
-        caption=caption,
-        images=[PostImageCreate(image_url=url) for url in image_urls],
-    )
+        return await post_repo.create_post(
+            db=db, post=post_data, user_id=current_user.id
+        )
 
-    return await post_repo.create_post(db=db, post=post_data, user_id=current_user.id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unexpected error occurred")
 
 
 @router.get("/{id}", response_model=PostResponse)
@@ -150,10 +159,10 @@ async def get_post(
 async def update_post(
     id: int,
     caption: str | None = Form(None),
-    images_to_delete: list[int] = Form(default_factory=list),
-    new_images: list[UploadFile] = File(default_factory=list),
-    current_user: Annotated[User, Depends(get_current_user)] = None,
+    images_to_delete: list[int] = Form(default=[]),
+    new_images: list[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_pg_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Update a post including caption and images.
@@ -180,26 +189,55 @@ async def update_post(
     Returns:
         PostResponse: The updated post data after successful modification.
     """
-    uploaded_urls = []
+    try:
 
-    if new_images:
-        uploaded_urls = await asyncio.gather(
-            *[upload_image(file, folder="updated_posts") for file in new_images]
+        # calculate image count = 10 
+           # move it to API
+        post = await post_repo.get_post_by_id(db, id)
+
+        if not post:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        if post.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not allowed")
+        
+        # remaining images after deletion
+        remaining_images = [
+            img for img in post.images if img.id not in images_to_delete
+        ]
+
+        if len(remaining_images) + len(new_images) > MAX_IMAGES:
+            raise HTTPException(status_code=400, detail="Max 10 images allowed")
+        
+        uploaded_urls = []
+
+        if new_images:
+            await validate_files(new_images)
+            uploaded_urls = await asyncio.gather(
+                *[upload_image(file, folder="updated_posts") for file in new_images]
+            )
+
+        post_update_data = PostUpdate(caption=caption,new_images=[PostImageCreate(image_url=img.url,public_id=img.public_id) for img in uploaded_urls] if uploaded_urls else [],images_to_delete=images_to_delete or [])
+
+        updated_post = await post_repo.update_post_repo(
+            db=db,
+            post_id=id,
+            user_id=current_user.id,
+            post_data=post_update_data
         )
 
-    post_image_objs = [PostImage(image_url=url) for url in uploaded_urls]
+        if not updated_post:
+            raise HTTPException(status_code=404, detail="Post not found")
 
-    return await post_repo.update_post_repo(
-        db=db,
-        post_id=id,
-        user_id=current_user.id,
-        caption=caption,
-        new_images=post_image_objs,
-        images_to_delete=images_to_delete,
-    )
+        return updated_post
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unexpected error occurred")
 
 
-@router.delete("/{id}", status_code=status.HTTP_200_OK)
+@router.delete("/{id}", status_code=204)
 async def delete_post(
     id: int,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -220,14 +258,21 @@ async def delete_post(
     Returns:
         bool: True if the post was successfully deleted.
     """
-    post = await post_repo.get_post_by_id(db, id)
+    try:
+        post = await post_repo.get_post_by_id(db, id)
 
-    if not post:
-        raise HTTPException(status_code=404, detail="post not found")
+        if not post:
+            raise HTTPException(status_code=404, detail="post not found")
 
-    if post.user_id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="You are not allowed to delete this post"
-        )
+        if post.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403, detail="You are not allowed to delete this post"
+            )
 
-    await post_repo.delete_post(db, post)
+        await post_repo.delete_post(db, post)
+
+        return 
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unexpected error occurred")

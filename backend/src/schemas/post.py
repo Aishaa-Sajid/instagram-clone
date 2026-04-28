@@ -15,7 +15,9 @@ class PostCreate(PostBase):
 
 class PostUpdate(BaseModel):
     caption: str | None = None
-    images : List[PostImageUpdate] = Field(default_factory=list)    
+    new_images : List[PostImageCreate] = Field(default_factory=list)   
+    # new_images : List[PostImageUpdate] = Field(default_factory=list)  
+    images_to_delete: list[int] | None = None 
 
 
 class PostResponse(PostBase):

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.dependencies.database import get_pg_db
 from src.repositories import user_repo
 from src.schemas.user import UserCreate, UserOut
-from src.services.Cloudinary.cloudinary_service import upload_image
+from src.services.cloudinary.cloudinary_service import upload_image
 from src.dependencies.auth import get_current_user
 from typing_extensions import Annotated
 from src.database.models import User
