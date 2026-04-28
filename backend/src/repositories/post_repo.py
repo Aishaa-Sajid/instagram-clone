@@ -4,14 +4,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
-from src.core.constants import MAX_IMAGES
+from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
-from src.repositories.post_image_repo import _add_post_images,_delete_post_images
+from src.repositories.post_image_repo import _add_post_images, _delete_post_images
+
 
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     stmt = (
         select(Post)
-        .options(selectinload(Post.owner), selectinload(Post.images),selectinload(Post.likes))
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images),
+            selectinload(Post.likes),
+        )
         .where(Post.id == post_id)
     )
 
@@ -20,7 +25,12 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
 
 
 async def get_posts(
-    db: AsyncSession,*, limit: int, skip: int,  user_id:int,search: str | None = None,
+    db: AsyncSession,
+    *,
+    limit: int,
+    skip: int,
+    user_id: int,
+    search: str | None = None,
 ) -> list[Post]:
     """
         Retrieve a paginated list of posts with optional search filtering.
@@ -42,7 +52,11 @@ async def get_posts(
     """
     stmt = (
         select(Post)
-        .options(selectinload(Post.owner), selectinload(Post.images),selectinload(Post.likes))
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images),
+            selectinload(Post.likes),
+        )
         .limit(limit)
         .offset(skip)
     )
@@ -51,7 +65,7 @@ async def get_posts(
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
     result = await db.execute(stmt)
-    posts= result.scalars().all()
+    posts = result.scalars().all()
     response = []
 
     for post in posts:
@@ -105,7 +119,11 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
         await db.flush()
 
         images = [
-            PostImage(post_id=new_post.id, image_url=image.image_url,public_id=image.public_id )
+            PostImage(
+                post_id=new_post.id,
+                image_url=image.image_url,
+                public_id=image.public_id,
+            )
             for image in post.images
         ]
 
@@ -126,7 +144,7 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
         raise HTTPException(status_code=500, detail=f"Failed to create post: {str(e)}")
 
 
-async def get_post(db: AsyncSession, post_id: int, user_id:int) -> PostResponse | None:
+async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:
     """
     Retrieve a single post by its ID.
 
@@ -148,10 +166,8 @@ async def get_post(db: AsyncSession, post_id: int, user_id:int) -> PostResponse 
 
     # return post
     likes_count = len(post.likes)
-    
-    is_liked = any(
-        like.user_id == user_id for like in post.likes
-    )
+
+    is_liked = any(like.user_id == user_id for like in post.likes)
 
     return PostResponse(
         id=post.id,
@@ -164,7 +180,7 @@ async def get_post(db: AsyncSession, post_id: int, user_id:int) -> PostResponse 
         likes_count=likes_count,
         is_liked=is_liked,
     )
-    
+
 
 async def delete_post(db: AsyncSession, post: Post):
     """
@@ -186,11 +202,14 @@ async def delete_post(db: AsyncSession, post: Post):
     await db.delete(post)
     await db.commit()
 
+
 async def update_post_repo(
     db: AsyncSession,
-    post_id: int,
+    post: Post,
     user_id: int,
-    post_data:PostUpdate
+    caption: str | None,
+    new_images: list,
+    images_to_delete: list[int],
 ) -> Post | None:
     """
     Update a post's caption and associated images.
@@ -206,11 +225,12 @@ async def update_post_repo(
     Args:
         db (AsyncSession): Asynchronous database session used for
             persistence operations.
-        post_id (int): ID of the post to be updated.
+        post (Post): The post instance to be updated.
         user_id (int): ID of the user performing the update (used for
             ownership validation).
-        post_data (PostUpdate): Contains caption, new_images (as schema), and images_to_delete
-        images_to_delete (list[int] | None): List of image IDs to remove
+        caption (str | None): Updated caption for the post.
+        new_images (list): List of new image URLs to add.
+        images_to_delete (list[int]): List of image IDs to remove
             from the post.
 
     Returns:
@@ -218,11 +238,6 @@ async def update_post_repo(
     """
 
     try:
-        post= await get_post_by_id(db,post_id)
-        caption=post_data.caption
-        new_images = post_data.new_images 
-        images_to_delete = post_data.images_to_delete 
-
         if images_to_delete:
             await _delete_post_images(post, images_to_delete, db)
 

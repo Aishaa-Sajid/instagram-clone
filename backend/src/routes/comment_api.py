@@ -12,6 +12,7 @@ from src.repositories.post_repo import get_post_by_id
 
 router = APIRouter(tags=["Comments"])
 
+
 @router.post("/post/{post_id}", response_model=CommentResponse, status_code=201)
 async def create_comment(
     post_id: int,
@@ -39,7 +40,7 @@ async def create_comment(
             - 404 if the post does not exist
             - 500 if an unexpected database error occurs
     """
-    
+
     try:
         post = await get_post_by_id(db, post_id)
 
@@ -56,10 +57,8 @@ async def create_comment(
         raise
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create comment"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create comment")
+
 
 @router.get("/post/{post_id}", response_model=list[CommentResponse])
 async def get_comments_for_post(
@@ -96,10 +95,7 @@ async def get_comments_for_post(
             skip=skip,
         )
     except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to fetch comments for post"
-        )
+        raise HTTPException(status_code=500, detail="Failed to fetch comments for post")
 
 
 @router.get("/{comment_id}", response_model=CommentResponse)
@@ -131,10 +127,8 @@ async def get_comment(
         raise
 
     except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retrieve comment"
-        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve comment")
+
 
 @router.put("/{comment_id}", response_model=CommentResponse)
 async def update_comment(
@@ -159,7 +153,7 @@ async def update_comment(
     Returns:
         CommentResponse: The updated comment.
     """
-    try:    
+    try:
         comment = await comment_repo.get_comment_by_id(db, comment_id)
 
         if not comment:
@@ -177,10 +171,8 @@ async def update_comment(
         raise
 
     except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to update comment"
-        )
+        raise HTTPException(status_code=500, detail="Failed to update comment")
+
 
 @router.delete("/{comment_id}", status_code=200)
 async def delete_comment(
@@ -213,7 +205,6 @@ async def delete_comment(
         if not comment:
             raise HTTPException(status_code=404, detail="Comment not found")
 
-
         if not (
             comment.user_id == current_user.id
             or comment.post.user_id == current_user.id
@@ -223,15 +214,13 @@ async def delete_comment(
         await comment_repo.delete_comment(db, comment=comment)
 
         return None
-    
+
     except HTTPException:
         raise
 
     except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to delete comment"
-        )
+        raise HTTPException(status_code=500, detail="Failed to delete comment")
+
 
 @router.get("/user/{user_id}", response_model=list[CommentResponse])
 async def get_comments_by_user(
@@ -264,7 +253,4 @@ async def get_comments_by_user(
             skip=skip,
         )
     except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to fetch user comments"
-        )
+        raise HTTPException(status_code=500, detail="Failed to fetch user comments")

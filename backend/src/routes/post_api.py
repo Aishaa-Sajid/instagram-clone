@@ -3,7 +3,7 @@ from typing import List
 from typing_extensions import Annotated
 from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.core.constants import MAX_IMAGES
+from src.utils.constants import MAX_IMAGES
 from src.database.models.post_image import PostImage
 from src.schemas.post_image import PostImageCreate, PostUploadImage
 from src.dependencies.database import get_pg_db
@@ -45,7 +45,9 @@ async def get_posts(
         list[PostResponse]: A list of posts matching the given criteria.
 
     """
-    return await post_repo.get_posts(db=db, limit=limit, skip=skip, search=search,user_id=current_user.id)
+    return await post_repo.get_posts(
+        db=db, limit=limit, skip=skip, search=search, user_id=current_user.id
+    )
 
 
 # @router.get("/no_auth", response_model=list[PostResponse])
@@ -102,7 +104,7 @@ async def create_post(
             raise HTTPException(
                 status_code=400, detail="At least one image is required"
             )
-        
+
         await validate_files(files)
 
         upload_tasks = [upload_image(file, folder="post_images") for file in files]
@@ -110,7 +112,10 @@ async def create_post(
 
         post_data = PostCreate(
             caption=caption,
-            images=[PostImageCreate(image_url=img.url,public_id=img.public_id) for img in image_urls],
+            images=[
+                PostImageCreate(image_url=img.url, public_id=img.public_id)
+                for img in image_urls
+            ],
         )
 
         return await post_repo.create_post(
@@ -145,7 +150,7 @@ async def get_post(
         PostResponse: The requested post data.
     """
 
-    post = await post_repo.get_post(db=db, post_id=id,user_id=current_user.id)
+    post = await post_repo.get_post(db=db, post_id=id, user_id=current_user.id)
 
     if not post:
         raise HTTPException(
@@ -190,9 +195,6 @@ async def update_post(
         PostResponse: The updated post data after successful modification.
     """
     try:
-
-        # calculate image count = 10 
-           # move it to API
         post = await post_repo.get_post_by_id(db, id)
 
         if not post:
@@ -200,15 +202,14 @@ async def update_post(
 
         if post.user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Not allowed")
-        
-        # remaining images after deletion
+
         remaining_images = [
             img for img in post.images if img.id not in images_to_delete
         ]
 
         if len(remaining_images) + len(new_images) > MAX_IMAGES:
             raise HTTPException(status_code=400, detail="Max 10 images allowed")
-        
+
         uploaded_urls = []
 
         if new_images:
@@ -216,14 +217,14 @@ async def update_post(
             uploaded_urls = await asyncio.gather(
                 *[upload_image(file, folder="updated_posts") for file in new_images]
             )
-
-        post_update_data = PostUpdate(caption=caption,new_images=[PostImageCreate(image_url=img.url,public_id=img.public_id) for img in uploaded_urls] if uploaded_urls else [],images_to_delete=images_to_delete or [])
-
+      
         updated_post = await post_repo.update_post_repo(
             db=db,
-            post_id=id,
+            post=post,
             user_id=current_user.id,
-            post_data=post_update_data
+            caption=caption,
+            new_images=uploaded_urls,
+            images_to_delete=images_to_delete or [],
         )
 
         if not updated_post:
@@ -271,7 +272,7 @@ async def delete_post(
 
         await post_repo.delete_post(db, post)
 
-        return 
+        return
     except HTTPException:
         raise
     except Exception:

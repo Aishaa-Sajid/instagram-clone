@@ -1,5 +1,5 @@
 from fastapi import HTTPException, UploadFile
-from src.core.constants import (
+from src.utils.constants import (
     MAX_IMAGES,
     ALLOWED_CONTENT_TYPES,
     MAX_FILE_SIZE,

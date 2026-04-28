@@ -1,10 +1,13 @@
+from sqlalchemy.ext import asyncio
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post import Post
 from src.database.models.post_image import PostImage
 from sqlalchemy.ext.asyncio import AsyncSession
 
-async def _delete_post_images(post: Post, image_ids: list[int], db: AsyncSession):
-    
+
+async def _delete_post_images(
+    post: Post, image_ids: list[int], db: AsyncSession
+) -> None:
     """
      Remove specified images associated with a post.
 
@@ -21,13 +24,22 @@ async def _delete_post_images(post: Post, image_ids: list[int], db: AsyncSession
     Returns:
         None
     """
+    if not image_ids:
+        return
+
+    image_ids = set(image_ids)
     remaining = []
+    delete_tasks = []
 
     for img in post.images:
         if img.id in image_ids:
-            await delete_image_from_cloudinary(img.public_id)
+            if img.public_id:
+                await delete_tasks.append(delete_image_from_cloudinary(img.public_id))
         else:
             remaining.append(img)
+
+    if delete_tasks:
+        await asyncio.gather(*delete_tasks, return_exceptions=True)
 
     post.images = remaining
 
@@ -54,14 +66,9 @@ async def _add_post_images(post: Post, images: list[PostImage], db: AsyncSession
         None
     """
     db_images = [
-        PostImage(
-            post_id=post.id,
-            image_url=img.image_url,
-            public_id=img.public_id
-        )
+        PostImage(post_id=post.id, image_url=img.image_url, public_id=img.public_id)
         for img in images
     ]
 
     db.add_all(db_images)
     # post.images.extend(images)
-   
