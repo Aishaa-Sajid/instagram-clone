@@ -29,7 +29,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_pg_db)):
     try:
         return await user_repo.create_user(db, user)
     except Exception as e:
-        return HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{id}", response_model=UserOut)
@@ -94,7 +94,10 @@ async def update_user(
             detail=f"User with id {current_user.id} does not exist",
         )
 
-    image_url = await upload_image(file, folder="profile_pics") if file else None
+    result = await upload_image(file, folder="profile_pics") if file else None
+
+    image_url = result.url if result else None
+    public_id = result.public_id if result else None
 
     updated_user = await user_repo.update_user(
         db=db,
@@ -102,6 +105,7 @@ async def update_user(
         bio=bio,
         is_private=is_private,
         image_url=image_url,
+        public_id=public_id,
     )
 
     return updated_user

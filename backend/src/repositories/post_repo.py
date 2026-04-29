@@ -2,6 +2,7 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
 from src.utils.constants import MAX_IMAGES
@@ -71,6 +72,7 @@ async def get_posts(
     for post in posts:
         likes_count = len(post.likes)
 
+        # TODO: fix this
         is_liked = False
         if user_id:
             is_liked = any(like.user_id == user_id for like in post.likes)
@@ -112,8 +114,8 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     if len(post.images) > MAX_IMAGES:
         raise Exception(f"A post can have maximum {MAX_IMAGES} images")
 
-    try:
-
+    async with db.begin():
+      
         new_post = Post(caption=post.caption, user_id=user_id)
         db.add(new_post)
         await db.flush()
@@ -131,17 +133,15 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
         await db.commit()
         await db.refresh(new_post)
 
-        result = await db.execute(
+    result = await db.execute(
             select(Post)
             .options(selectinload(Post.images), selectinload(Post.owner))
             .where(Post.id == new_post.id)
         )
 
-        return result.scalar_one()
+    return result.scalar_one()
 
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create post: {str(e)}")
+
 
 
 async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:
@@ -198,6 +198,9 @@ async def delete_post(db: AsyncSession, post: Post):
     Returns:
         Response: An empty HTTP response with status code 204 (No Content).
     """
+    for img in post.images:
+        if img.public_id:
+            await delete_image_from_cloudinary(img.public_id)
 
     await db.delete(post)
     await db.commit()
@@ -206,11 +209,11 @@ async def delete_post(db: AsyncSession, post: Post):
 async def update_post_repo(
     db: AsyncSession,
     post: Post,
-    user_id: int,
+    # user_id: int,
     caption: str | None,
     new_images: list,
     images_to_delete: list[int],
-) -> Post | None:
+) -> Post:
     """
     Update a post's caption and associated images.
 
@@ -226,8 +229,6 @@ async def update_post_repo(
         db (AsyncSession): Asynchronous database session used for
             persistence operations.
         post (Post): The post instance to be updated.
-        user_id (int): ID of the user performing the update (used for
-            ownership validation).
         caption (str | None): Updated caption for the post.
         new_images (list): List of new image URLs to add.
         images_to_delete (list[int]): List of image IDs to remove
@@ -236,22 +237,15 @@ async def update_post_repo(
     Returns:
         Post | None: The updated post instance if successful.
     """
-
-    try:
+    async with db.begin():
         if images_to_delete:
             await _delete_post_images(post, images_to_delete, db)
 
-        if new_images and len(new_images) > 0:
-            await _add_post_images(post, new_images, db)
+            if new_images:
+                await _add_post_images(post, new_images, db)
 
-        if caption is not None:
-            post.caption = caption
+            if caption is not None:
+                post.caption = caption
 
-        await db.commit()
-        await db.refresh(post)
-
-        return post
-
-    except Exception:
-        await db.rollback()
-        raise
+    await db.refresh(post)
+    return post

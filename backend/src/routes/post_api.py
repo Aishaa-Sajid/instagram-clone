@@ -122,8 +122,6 @@ async def create_post(
             db=db, post=post_data, user_id=current_user.id
         )
 
-    except HTTPException:
-        raise
     except Exception:
         raise HTTPException(status_code=500, detail="Unexpected error occurred")
 
@@ -194,24 +192,22 @@ async def update_post(
     Returns:
         PostResponse: The updated post data after successful modification.
     """
+    post = await post_repo.get_post_by_id(db, id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    remaining_images = [
+        img for img in post.images if img.id not in images_to_delete
+    ]
+
+    if len(remaining_images) + len(new_images) > MAX_IMAGES:
+        raise HTTPException(status_code=400, detail="Max 10 images allowed")
+    
     try:
-        post = await post_repo.get_post_by_id(db, id)
-
-        if not post:
-            raise HTTPException(status_code=404, detail="Post not found")
-
-        if post.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-
-        remaining_images = [
-            img for img in post.images if img.id not in images_to_delete
-        ]
-
-        if len(remaining_images) + len(new_images) > MAX_IMAGES:
-            raise HTTPException(status_code=400, detail="Max 10 images allowed")
-
         uploaded_urls = []
-
         if new_images:
             await validate_files(new_images)
             uploaded_urls = await asyncio.gather(
@@ -231,11 +227,9 @@ async def update_post(
             raise HTTPException(status_code=404, detail="Post not found")
 
         return updated_post
-
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Unexpected error occurred")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error occurred: {str(e)}")
 
 
 @router.delete("/{id}", status_code=204)
@@ -273,7 +267,6 @@ async def delete_post(
         await post_repo.delete_post(db, post)
 
         return
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Unexpected error occurred")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error occurred: {str(e)}")

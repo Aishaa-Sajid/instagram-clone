@@ -1,8 +1,9 @@
-from sqlalchemy.ext import asyncio
+import asyncio
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post import Post
 from src.database.models.post_image import PostImage
 from sqlalchemy.ext.asyncio import AsyncSession
+from loguru import logger
 
 
 async def _delete_post_images(
@@ -34,20 +35,22 @@ async def _delete_post_images(
     for img in post.images:
         if img.id in image_ids:
             if img.public_id:
-                await delete_tasks.append(delete_image_from_cloudinary(img.public_id))
+                delete_tasks.append(delete_image_from_cloudinary(img.public_id))
         else:
             remaining.append(img)
 
     if delete_tasks:
-        await asyncio.gather(*delete_tasks, return_exceptions=True)
+        results = (
+            await asyncio.gather(*delete_tasks, return_exceptions=True)
+            if delete_tasks
+            else []
+        )
 
     post.images = remaining
 
-    # async def _delete_post_images(post: Post, image_ids: list[int], db: AsyncSession):
-    #     for img in list(post.images):
-    #         if img.id in image_ids:
-    #             await delete_image_from_cloudinary(img.public_id)  # external cleanup
-    # post.images = [img for img in post.images if img.id not in image_ids]  # ORM cascade handles DB
+    for r in results:
+        if isinstance(r, Exception):
+            logger.error(f"Cloudinary delete failed: {r}")
 
 
 async def _add_post_images(post: Post, images: list[PostImage], db: AsyncSession):
@@ -71,4 +74,3 @@ async def _add_post_images(post: Post, images: list[PostImage], db: AsyncSession
     ]
 
     db.add_all(db_images)
-    # post.images.extend(images)
