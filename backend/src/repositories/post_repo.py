@@ -2,7 +2,7 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from backend.src.database.models.like import Like
+from src.database.models.like import Like
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate

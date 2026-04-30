@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
-from src.schemas.user import UserOut, UserResponse
+from typing import List
+from src.schemas.user import UserOut
 from src.schemas.post_image import PostImageCreate, PostImageResponse, PostImageUpdate
 from src.schemas.like import LikeResponse
 

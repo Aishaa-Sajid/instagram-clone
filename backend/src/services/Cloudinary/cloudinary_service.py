@@ -18,7 +18,7 @@ async def upload_image(file: UploadFile, folder: str = "uploads") -> PostUploadI
     - post images
     - any media uploads
     """
-
+    await file.seek(0)
     file_bytes = await file.read()
     file_obj = io.BytesIO(file_bytes)
 

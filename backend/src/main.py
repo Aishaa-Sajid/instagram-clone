@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # import src.database.models
-from src.routes import auth_api, user_api, post_api, health_check_api, like_api,comment_api
+from src.routes import auth_api, user_api, post_api, health_check_api, like_api,comment_api,story_api
 
 
 @asynccontextmanager
@@ -35,3 +35,4 @@ app.include_router(router=user_api.router, prefix="/users")
 app.include_router(router=post_api.router, prefix="/posts")
 app.include_router(router=like_api.router, prefix="/likes")
 app.include_router(router=comment_api.router, prefix="/comments")
+app.include_router(router=story_api.router, prefix="/stories")
