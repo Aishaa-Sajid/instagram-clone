@@ -63,7 +63,7 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
     """
     existing_user = await get_user_by_email(db, user.email)
     if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise Exception("Email already registered")
 
     hashed_password = hash(user.password)
     verification_token = secrets.token_urlsafe(32)
@@ -81,7 +81,8 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
     try:
         await send_verification_email(new_user.email, verification_token)
     except Exception as e:
-        raise Exception("Failed to send verification email") from e
+        logger.error(f"Email sending failed: {e}")
+        raise Exception("Failed to send verification email")
 
     return new_user
 

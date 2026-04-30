@@ -172,11 +172,14 @@ async def update_comment(
     Returns:
         Comment: The updated Comment ORM instance.
     """
-    update_data = data.model_dump(exclude_unset=True)
+    # update_data = data.model_dump(exclude_unset=True)
 
-    for key, value in update_data.items():
-        if hasattr(comment, key):
-            setattr(comment, key, value)
+    # for key, value in update_data.items():
+    #     if hasattr(comment, key):
+    #         setattr(comment, key, value)
+
+    if data.content is not None:
+        comment.content = data.content
 
     await db.commit()
     await db.refresh(comment)

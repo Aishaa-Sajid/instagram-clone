@@ -32,14 +32,9 @@ async def upload_image(file: UploadFile, folder: str = "uploads") -> PostUploadI
 
 
 async def delete_image_from_cloudinary(public_id: str):
-    try:
-        result = await asyncio.to_thread(cloudinary.uploader.destroy, public_id)
 
-        if result.get("result") != "ok":
-            raise Exception(f"Cloudinary delete failed: {result}")
+    result = await asyncio.to_thread(cloudinary.uploader.destroy, public_id)
+    if result.get("result") != "ok":
+        raise Exception(f"Cloudinary delete failed: {result}")
 
-        return result
-
-    except Exception as e:
-        print(f"Cloudinary delete failed: {e}")
-        return None
+    return result

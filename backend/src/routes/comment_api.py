@@ -53,8 +53,6 @@ async def create_comment(
             post_id=post_id,
             data=data,
         )
-    except HTTPException:
-        raise
 
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to create comment")
@@ -123,8 +121,6 @@ async def get_comment(
             raise HTTPException(status_code=404, detail="Comment not found")
 
         return comment
-    except HTTPException:
-        raise
 
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to retrieve comment")
@@ -167,8 +163,6 @@ async def update_comment(
             comment=comment,
             data=data,
         )
-    except HTTPException:
-        raise
 
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to update comment")
@@ -214,9 +208,6 @@ async def delete_comment(
         await comment_repo.delete_comment(db, comment=comment)
 
         return None
-
-    except HTTPException:
-        raise
 
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to delete comment")

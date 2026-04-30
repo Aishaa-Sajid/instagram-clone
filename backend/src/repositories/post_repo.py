@@ -2,12 +2,14 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from backend.src.database.models.like import Like
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
 from src.repositories.post_image_repo import _add_post_images, _delete_post_images
+from sqlalchemy import select, func, exists
 
 
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
@@ -24,7 +26,6 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
-
 async def get_posts(
     db: AsyncSession,
     *,
@@ -32,31 +33,29 @@ async def get_posts(
     skip: int,
     user_id: int,
     search: str | None = None,
-) -> list[Post]:
-    """
-        Retrieve a paginated list of posts with optional search filtering.
+):
+    likes_subquery = (
+        select(
+            Like.post_id,
+            func.count(Like.id).label("likes_count")
+        )
+        .group_by(Like.post_id)
+        .subquery()
+    )
 
-    This function queries the database for posts using SQLAlchemy 2.0 async
-    style. It supports pagination and optional filtering by post caption.
-    Related entities such as the post owner and images are eagerly loaded
-    using `selectinload` to avoid N+1 query issues.
-
-    Args:
-        db (AsyncSession): The asynchronous database session used for querying.
-        limit (int): Maximum number of posts to return.
-        skip (int): Number of posts to skip (used for pagination).
-        search (str | None, optional): Optional search string to filter posts
-            by caption (case-insensitive partial match). Defaults to None.
-
-    Returns:
-        list[Post]: A list of post objects.
-    """
     stmt = (
-        select(Post)
+        select(
+            Post,
+            func.coalesce(likes_subquery.c.likes_count, 0).label("likes_count"),
+            exists().where(
+                Like.post_id == Post.id,
+                Like.user_id == user_id
+            ).label("is_liked")
+        )
+        .outerjoin(likes_subquery, Post.id == likes_subquery.c.post_id)
         .options(
             selectinload(Post.owner),
             selectinload(Post.images),
-            selectinload(Post.likes),
         )
         .limit(limit)
         .offset(skip)
@@ -66,17 +65,12 @@ async def get_posts(
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
     result = await db.execute(stmt)
-    posts = result.scalars().all()
+
+    rows = result.all()
+
     response = []
 
-    for post in posts:
-        likes_count = len(post.likes)
-
-        # TODO: fix this
-        is_liked = False
-        if user_id:
-            is_liked = any(like.user_id == user_id for like in post.likes)
-
+    for post, likes_count, is_liked in rows:
         response.append(
             PostResponse(
                 id=post.id,
@@ -92,7 +86,6 @@ async def get_posts(
         )
 
     return response
-
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
