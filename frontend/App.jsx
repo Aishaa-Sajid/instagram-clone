@@ -1,7 +1,11 @@
-import PostsPage from "./pages/PostsPage";
+
+
+
 
 function App() {
-  return <PostsPage />;
+
+
+  return <>hellow world</>
 }
 
 export default App;
