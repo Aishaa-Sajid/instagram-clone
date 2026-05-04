@@ -10,3 +10,4 @@ wheels/
 .env
 .claude
 node_modules
+frontend-winad

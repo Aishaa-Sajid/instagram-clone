@@ -1,0 +1,25 @@
+@import url("https://fonts.googleapis.com/css2?family=Grand+Hotel&family=Inter:wght@400;500;600;700&display=swap");
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #fafafa;
+}
+
+.font-display {
+  font-family: "Grand Hotel", "Billabong", "Snell Roundhand", cursive;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.auth-card {
+  max-width: 420px;
+  width: 100%;
+}
