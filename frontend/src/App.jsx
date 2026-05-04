@@ -5,14 +5,7 @@ import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
 import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm'
 import { VerifyEmailForm } from '@/components/auth/VerifyEmailForm'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
-
-function Home() {
-  return (
-    <div className="d-flex min-vh-100 align-items-center justify-content-center">
-      <h1 className="h4 fw-semibold">Logged in. Feed coming soon.</h1>
-    </div>
-  )
-}
+import { Feed } from '@/components/feed/Feed'
 
 export default function App() {
   return (
@@ -27,7 +20,7 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <Home />
+              <Feed />
             </ProtectedRoute>
           }
         />
