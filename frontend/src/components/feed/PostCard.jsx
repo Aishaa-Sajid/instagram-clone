@@ -25,28 +25,15 @@ export function PostCard({ post }) {
   const prev = () => setIndex((i) => Math.max(i - 1, 0))
 
   return (
-    <article className="bg-white border rounded-3 mb-4 overflow-hidden post-card">
+    <article className="bg-white mb-3 mb-sm-4 overflow-hidden post-card">
       <header className="d-flex align-items-center gap-2 px-3 py-2">
-        <div
-          className="rounded-circle d-flex align-items-center justify-content-center text-white fw-semibold"
-          style={{
-            width: 36,
-            height: 36,
-            background:
-              'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
-          }}
-        >
-          <span
-            className="rounded-circle bg-white text-dark d-flex align-items-center justify-content-center"
-            style={{ width: 30, height: 30, fontSize: 14 }}
-          >
-            {avatarLetter}
-          </span>
+        <div className="avatar-ring">
+          <div className="avatar-inner">{avatarLetter}</div>
         </div>
         <div className="flex-grow-1">
           <div className="fw-semibold small">{username}</div>
         </div>
-        <button className="btn btn-sm btn-link text-dark p-0" aria-label="More options">
+        <button className="icon-btn" aria-label="More options">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="5" cy="12" r="2" />
             <circle cx="12" cy="12" r="2" />
@@ -58,12 +45,22 @@ export function PostCard({ post }) {
       <div className="post-media position-relative bg-black">
         {images.length > 0 ? (
           <>
-            <img
-              src={images[index].image_url}
-              alt={post.caption ?? 'post image'}
-              className="w-100 d-block post-image"
-              loading="lazy"
-            />
+            <div
+              className="post-track"
+              style={{ transform: `translateX(-${index * 100}%)` }}
+            >
+              {images.map((img, i) => (
+                <div className="post-slide" key={img.id ?? i}>
+                  <img
+                    src={img.image_url}
+                    alt={post.caption ?? 'post image'}
+                    className="post-image"
+                    loading={i === 0 ? 'eager' : 'lazy'}
+                    draggable={false}
+                  />
+                </div>
+              ))}
+            </div>
             {images.length > 1 && (
               <>
                 {index > 0 && (
@@ -71,7 +68,7 @@ export function PostCard({ post }) {
                     type="button"
                     onClick={prev}
                     aria-label="Previous image"
-                    className="post-nav-btn position-absolute top-50 start-0 translate-middle-y ms-2"
+                    className="post-nav-btn post-nav-btn-prev"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
@@ -83,7 +80,7 @@ export function PostCard({ post }) {
                     type="button"
                     onClick={next}
                     aria-label="Next image"
-                    className="post-nav-btn position-absolute top-50 end-0 translate-middle-y me-2"
+                    className="post-nav-btn post-nav-btn-next"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />

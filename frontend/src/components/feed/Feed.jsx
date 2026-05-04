@@ -4,6 +4,7 @@ import { extractApiError, logout } from '@/api/auth'
 import { useNavigate } from 'react-router-dom'
 import logoSvg from '@/assets/logo.svg'
 import { PostCard } from './PostCard'
+import { CreatePostForm } from './CreatePostForm'
 
 const PAGE_SIZE = 10
 
@@ -61,24 +62,26 @@ export function Feed() {
 
   return (
     <div className="d-flex flex-column min-vh-100">
-      <header className="feed-header bg-white border-bottom">
-        <div className="container-md d-flex align-items-center px-3 px-md-4" style={{ height: 60 }}>
+      <header className="feed-header">
+        <div className="feed-header-inner container-md d-flex align-items-center px-3 px-md-4">
           <div className="d-flex align-items-center gap-2">
-            <img src={logoSvg} alt="Instagram" width="28" height="28" />
-            <span className="font-display">Instagram</span>
+            <img src={logoSvg} alt="Instagram" width="26" height="26" />
+            <span className="font-display gradient-text">Instagram</span>
           </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="btn btn-sm btn-outline-secondary ms-auto"
+            className="btn btn-sm btn-light btn-pill ms-auto"
           >
             Log out
           </button>
         </div>
       </header>
 
-      <main className="flex-grow-1 py-4">
-        <div className="feed-container mx-auto px-3">
+      <main className="flex-grow-1 py-3 py-md-4">
+        <div className="feed-container mx-auto px-0 px-sm-3">
+          <CreatePostForm onCreated={(post) => setPosts((prev) => [post, ...prev])} />
+
           {error && (
             <div className="alert alert-danger" role="alert">
               {error}
