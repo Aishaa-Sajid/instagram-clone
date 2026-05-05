@@ -26,6 +26,7 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
+
 async def get_posts(
     db: AsyncSession,
     *,
@@ -35,10 +36,7 @@ async def get_posts(
     search: str | None = None,
 ):
     likes_subquery = (
-        select(
-            Like.post_id,
-            func.count(Like.id).label("likes_count")
-        )
+        select(Like.post_id, func.count(Like.id).label("likes_count"))
         .group_by(Like.post_id)
         .subquery()
     )
@@ -47,10 +45,9 @@ async def get_posts(
         select(
             Post,
             func.coalesce(likes_subquery.c.likes_count, 0).label("likes_count"),
-            exists().where(
-                Like.post_id == Post.id,
-                Like.user_id == user_id
-            ).label("is_liked")
+            exists()
+            .where(Like.post_id == Post.id, Like.user_id == user_id)
+            .label("is_liked"),
         )
         .outerjoin(likes_subquery, Post.id == likes_subquery.c.post_id)
         .options(
@@ -87,6 +84,7 @@ async def get_posts(
 
     return response
 
+
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
     Create a new post along with its associated images.
@@ -106,7 +104,7 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
     if len(post.images) > MAX_IMAGES:
         raise Exception(f"A post can have maximum {MAX_IMAGES} images")
-      
+
     new_post = Post(caption=post.caption, user_id=user_id)
     db.add(new_post)
     await db.flush()
@@ -124,14 +122,12 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     await db.commit()
 
     result = await db.execute(
-            select(Post)
-            .options(selectinload(Post.images), selectinload(Post.owner))
-            .where(Post.id == new_post.id)
-        )
+        select(Post)
+        .options(selectinload(Post.images), selectinload(Post.owner))
+        .where(Post.id == new_post.id)
+    )
 
     return result.scalar_one()
-
-
 
 
 async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:

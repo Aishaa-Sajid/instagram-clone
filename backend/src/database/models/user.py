@@ -11,21 +11,15 @@ class User(TimestampMixin, Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, nullable=False)
-
     email: Mapped[str] = mapped_column(unique=True, nullable=False)
     username: Mapped[str] = mapped_column(unique=True, nullable=False)
-
     password: Mapped[str] = mapped_column(nullable=False)
-
     bio: Mapped[str | None] = mapped_column(nullable=True)
     profile_picture: Mapped[str | None] = mapped_column(nullable=True)
     public_id: Mapped[str | None] = mapped_column(nullable=True)
-
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
-
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_token: Mapped[str | None] = mapped_column(nullable=True)
-
     deleted_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=True,
@@ -34,20 +28,21 @@ class User(TimestampMixin, Base):
 
     posts = relationship("Post", back_populates="owner", cascade="all, delete-orphan")
     likes = relationship("Like", back_populates="user", cascade="all, delete-orphan")
-    comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
-    stories = relationship("Story", back_populates="story_owner", cascade="all, delete-orphan")
-
-
+    comments = relationship(
+        "Comment", back_populates="user", cascade="all, delete-orphan"
+    )
+    stories = relationship(
+        "Story", back_populates="story_owner", cascade="all, delete-orphan"
+    )
     follower = relationship(
         "Follow",
         foreign_keys="[Follow.following_id]",
         back_populates="following",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
-
     following = relationship(
         "Follow",
         foreign_keys="[Follow.follower_id]",
         back_populates="follower",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
