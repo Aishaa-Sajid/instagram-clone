@@ -25,7 +25,7 @@ async def upload_image(file: UploadFile, folder: str = "uploads") -> PostUploadI
     result = await asyncio.to_thread(
         cloudinary.uploader.upload, file_obj, folder=folder
     )
-    print(result)
+    
     if not result.get("public_id"):
         raise Exception("Cloudinary did not return public_id")
     return PostUploadImage(url=result["secure_url"], public_id=result["public_id"])

@@ -13,15 +13,21 @@ async def create_story(
     media_url: str,
 ) -> Story:
     """
-    Create a new story with a 24-hour expiration.
+     Create a new story with a time-based expiration.
+
+    This function creates a story record for a user, assigns an expiration
+    time (currently set to 5 minutes for testing or development purposes),
+    persists it to the database, and returns the fully loaded story object
+    including its owner relationship.
 
     Args:
-        db (AsyncSession): Database session.
-        user_id (int): ID of the story owner.
-        media_url (str): Uploaded media URL.
+        db (AsyncSession): Database session used for persistence operations.
+        user_id (int): ID of the user who owns the story.
+        media_url (str): URL of the uploaded media file.
 
     Returns:
-        Story: Created story object.
+        Story: The created story instance with loaded relationships.
+
     """
     try:
         # expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -58,15 +64,20 @@ async def get_active_stories(
     limit: int,
 ) -> list[Story]:
     """
-    Retrieve only active (non-expired) stories.
+    Retrieve active (non-expired) stories with pagination.
+
+    This function fetches stories whose expiration time has not passed,
+    orders them by most recently created, and applies pagination using
+    skip and limit values.
 
     Args:
-        db (AsyncSession): Database session.
-        skip (int): Pagination offset.
-        limit (int): Number of records.
+        db (AsyncSession): Database session used for querying.
+        skip (int): Number of records to skip (pagination offset).
+        limit (int): Maximum number of stories to return.
 
     Returns:
-        list[Story]: Active stories list.
+        list[Story]: List of active (non-expired) story objects.
+        
     """
     now = datetime.now(timezone.utc)
 

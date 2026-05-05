@@ -17,7 +17,7 @@ celery_app.conf.update(
 celery_app.conf.beat_schedule = {
     "cleanup-stories-every-10-min": {
         "task": "src.celery.tasks.story_tasks.cleanup_expired_stories",
-        "schedule": 600.0,  # 10 minutes
+        "schedule": 120.0,  # 2 minutes
     }
 }
 

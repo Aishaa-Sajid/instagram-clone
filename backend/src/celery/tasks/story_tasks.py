@@ -6,6 +6,7 @@ from src.database.models.story import Story
 from src.celery.app import celery_app
 from src.database.config import SessionLocal
 
+
 @celery_app.task
 def cleanup_expired_stories():
     """
@@ -14,7 +15,7 @@ def cleanup_expired_stories():
 
     try:
         with SessionLocal() as db:
-            with db.begin():  
+            with db.begin():
 
                 stmt = delete(Story).where(
                     Story.expires_at <= datetime.now(timezone.utc)
@@ -29,11 +30,3 @@ def cleanup_expired_stories():
     except Exception as e:
         logger.exception(f"[Celery Error] cleanup_expired_stories failed: {e}")
         return 0
-
-
-    # async def run():
-    #     async with sessionmanager.session() as db:
-    #         deleted = await delete_expired_stories(db)
-    #         print(f"[Celery] Deleted {deleted} expired stories")
-
-    # asyncio.run(run())

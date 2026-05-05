@@ -21,12 +21,22 @@ async def create_story(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Upload a new story.
+    Create a new story by uploading an image file.
 
-    Accepts a single image file and stores it as a story.
+    This endpoint accepts a single image file, validates it, uploads it
+    to storage, and creates a story record associated with the current user.
+
+    Args:
+        file (UploadFile): Image file to be uploaded as a story.
+        db (AsyncSession): Database session dependency.
+        current_user (User): Authenticated user creating the story.
+
+    Returns:
+        StoryResponse: Created story object containing metadata and media URL.
+
     """
     try:
-        # await validate_files([file])
+        await validate_files([file])
 
         uploaded = await upload_image(file, folder="stories")
 
@@ -37,20 +47,31 @@ async def create_story(
         )
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create story: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to create story: {str(e)}")
 
 
 @router.get("/", response_model=list[StoryResponse])
 async def get_stories(
     db: AsyncSession = Depends(get_pg_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
     skip: int = 0,
     limit: int = 10,
 ):
     """
-    Get all active stories (not expired).
+    Retrieve active (non-expired) stories.
+
+    This endpoint returns a paginated list of all active stories that have
+    not yet expired.
+
+    Args:
+        db (AsyncSession): Database session dependency.
+        current_user (User): Authenticated user requesting stories.
+        skip (int): Number of records to skip for pagination.
+        limit (int): Maximum number of stories to return.
+
+    Returns:
+        list[StoryResponse]: List of active story objects.
+
     """
     return await story_repo.get_active_stories(
         db=db,
