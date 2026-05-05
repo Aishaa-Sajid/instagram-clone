@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 
-async def _delete_post_images(
+async def delete_post_images(
     post: Post, image_ids: list[int], db: AsyncSession
 ) -> None:
     """
@@ -53,7 +53,7 @@ async def _delete_post_images(
             logger.error(f"Cloudinary delete failed: {r}")
 
 
-async def _add_post_images(post: Post, images: list[PostImage], db: AsyncSession):
+async def add_post_images(post: Post, images: list[PostImage], db: AsyncSession):
     """Associate new images with a post.
 
     This function links each provided image to the given post by setting

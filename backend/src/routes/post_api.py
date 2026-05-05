@@ -217,7 +217,6 @@ async def update_post(
         updated_post = await post_repo.update_post_repo(
             db=db,
             post=post,
-            user_id=current_user.id,
             caption=caption,
             new_images=uploaded_urls,
             images_to_delete=images_to_delete or [],

@@ -8,7 +8,7 @@ from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
-from src.repositories.post_image_repo import _add_post_images, _delete_post_images
+from src.repositories.post_image_repo import add_post_images, delete_post_images
 from sqlalchemy import select, func, exists
 
 
@@ -106,25 +106,22 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
     if len(post.images) > MAX_IMAGES:
         raise Exception(f"A post can have maximum {MAX_IMAGES} images")
-
-    async with db.begin():
       
-        new_post = Post(caption=post.caption, user_id=user_id)
-        db.add(new_post)
-        await db.flush()
+    new_post = Post(caption=post.caption, user_id=user_id)
+    db.add(new_post)
+    await db.flush()
 
-        images = [
-            PostImage(
-                post_id=new_post.id,
-                image_url=image.image_url,
-                public_id=image.public_id,
-            )
-            for image in post.images
-        ]
+    images = [
+        PostImage(
+            post_id=new_post.id,
+            image_url=image.image_url,
+            public_id=image.public_id,
+        )
+        for image in post.images
+    ]
 
-        db.add_all(images)
-        await db.commit()
-        await db.refresh(new_post)
+    db.add_all(images)
+    await db.commit()
 
     result = await db.execute(
             select(Post)
@@ -202,7 +199,6 @@ async def delete_post(db: AsyncSession, post: Post):
 async def update_post_repo(
     db: AsyncSession,
     post: Post,
-    # user_id: int,
     caption: str | None,
     new_images: list,
     images_to_delete: list[int],
@@ -232,10 +228,10 @@ async def update_post_repo(
     """
     async with db.begin():
         if images_to_delete:
-            await _delete_post_images(post, images_to_delete, db)
+            await delete_post_images(post, images_to_delete, db)
 
             if new_images:
-                await _add_post_images(post, new_images, db)
+                await add_post_images(post, new_images, db)
 
             if caption is not None:
                 post.caption = caption

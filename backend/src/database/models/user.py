@@ -38,16 +38,16 @@ class User(TimestampMixin, Base):
     stories = relationship("Story", back_populates="story_owner", cascade="all, delete-orphan")
 
 
-    # followers = relationship(
-    #     "Follow",
-    #     foreign_keys="[Follow.following_id]",
-    #     back_populates="following",
-    #     cascade="all, delete-orphan"
-    # )
+    follower = relationship(
+        "Follow",
+        foreign_keys="[Follow.following_id]",
+        back_populates="following",
+        cascade="all, delete-orphan"
+    )
 
-    # following = relationship(
-    #     "Follow",
-    #     foreign_keys="[Follow.follower_id]",
-    #     back_populates="follower",
-    #     cascade="all, delete-orphan"
-    # )
+    following = relationship(
+        "Follow",
+        foreign_keys="[Follow.follower_id]",
+        back_populates="follower",
+        cascade="all, delete-orphan"
+    )
