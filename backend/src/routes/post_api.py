@@ -1,16 +1,14 @@
 import asyncio
-from typing import List
 from typing_extensions import Annotated
 from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.core.constants import MAX_IMAGES
-from src.database.models.post_image import PostImage
-from src.schemas.post_image import PostImageCreate, PostUploadImage
+from src.utils.constants import MAX_IMAGES
+from src.schemas.post_image import PostImageCreate
 from src.dependencies.database import get_pg_db
 from src.repositories import post_repo
 from src.dependencies.auth import get_current_user
-from src.schemas.post import PostResponse, PostCreate, PostOut, PostUpdate
-from src.database.models import Post, User
+from src.schemas.post import PostResponse, PostCreate
+from src.database.models import User
 from src.services.cloudinary.cloudinary_service import upload_image
 from fastapi import UploadFile, File, Form
 from src.utils.file_validators import validate_files
@@ -20,7 +18,7 @@ router = APIRouter(tags=["Posts"])
 
 @router.get("/", response_model=list[PostResponse])
 async def get_posts(
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_pg_db),
     limit: int = 10,
     skip: int = 0,
@@ -42,37 +40,12 @@ async def get_posts(
             Defaults to None.
 
     Returns:
-        list[PostOut]: A list of posts matching the given criteria.
+        list[PostResponse]: A list of posts matching the given criteria.
 
     """
-    return await post_repo.get_posts(db, limit, skip, search)
-
-
-# @router.get("/no_auth", response_model=list[PostResponse])
-# async def get_posts_no_auth(
-#     db: AsyncSession = Depends(get_pg_db),
-#     limit: int = 10,
-#     skip: int = 0,
-#     search: str | None = Query(default=None),
-# ):
-#     """
-#     Retrieve a list of posts without authentication.
-
-#     This endpoint returns posts in a paginated format and allows optional
-#     filtering using a search query. It is publicly accessible and does not
-#     require user authentication.
-
-#     Args:
-#         db (AsyncSession): The asynchronous database session.
-#         limit (int, optional): Maximum number of posts to return. Defaults to 10.
-#         skip (int, optional): Number of posts to skip for pagination. Defaults to 0.
-#         search (str | None, optional): Optional search keyword to filter posts.
-#             Defaults to None.
-
-#     Returns:
-#         list[PostOut]: A list of posts matching the given criteria.
-#     """
-#     return await post_repo.get_posts(db, limit, skip, search)
+    return await post_repo.get_posts(
+        db=db, limit=limit, skip=skip, search=search, user_id=current_user.id
+    )
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=PostResponse)
@@ -102,7 +75,7 @@ async def create_post(
             raise HTTPException(
                 status_code=400, detail="At least one image is required"
             )
-        
+
         await validate_files(files)
 
         upload_tasks = [upload_image(file, folder="post_images") for file in files]
@@ -110,15 +83,16 @@ async def create_post(
 
         post_data = PostCreate(
             caption=caption,
-            images=[PostImageCreate(image_url=img.url,public_id=img.public_id) for img in image_urls],
+            images=[
+                PostImageCreate(image_url=img.url, public_id=img.public_id)
+                for img in image_urls
+            ],
         )
 
         return await post_repo.create_post(
             db=db, post=post_data, user_id=current_user.id
         )
 
-    except HTTPException:
-        raise
     except Exception:
         raise HTTPException(status_code=500, detail="Unexpected error occurred")
 
@@ -127,7 +101,7 @@ async def create_post(
 async def get_post(
     id: int,
     db: AsyncSession = Depends(get_pg_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """
     Retrieve a single post by its ID.
@@ -142,10 +116,10 @@ async def get_post(
         _ (User): The currently authenticated user (injected via dependency).
 
     Returns:
-        PostOut: The requested post data.
+        PostResponse: The requested post data.
     """
 
-    post = await post_repo.get_post(db, id)
+    post = await post_repo.get_post(db=db, post_id=id, user_id=current_user.id)
 
     if not post:
         raise HTTPException(
@@ -189,41 +163,32 @@ async def update_post(
     Returns:
         PostResponse: The updated post data after successful modification.
     """
+    post = await post_repo.get_post_by_id(db, id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    remaining_images = [img for img in post.images if img.id not in images_to_delete]
+
+    if len(remaining_images) + len(new_images) > MAX_IMAGES:
+        raise HTTPException(status_code=400, detail="Max 10 images allowed")
+
     try:
-
-        # calculate image count = 10 
-           # move it to API
-        post = await post_repo.get_post_by_id(db, id)
-
-        if not post:
-            raise HTTPException(status_code=404, detail="Post not found")
-
-        if post.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not allowed")
-        
-        # remaining images after deletion
-        remaining_images = [
-            img for img in post.images if img.id not in images_to_delete
-        ]
-
-        if len(remaining_images) + len(new_images) > MAX_IMAGES:
-            raise HTTPException(status_code=400, detail="Max 10 images allowed")
-        
         uploaded_urls = []
-
         if new_images:
             await validate_files(new_images)
             uploaded_urls = await asyncio.gather(
                 *[upload_image(file, folder="updated_posts") for file in new_images]
             )
 
-        post_update_data = PostUpdate(caption=caption,new_images=[PostImageCreate(image_url=img.url,public_id=img.public_id) for img in uploaded_urls] if uploaded_urls else [],images_to_delete=images_to_delete or [])
-
         updated_post = await post_repo.update_post_repo(
             db=db,
-            post_id=id,
-            user_id=current_user.id,
-            post_data=post_update_data
+            post=post,
+            caption=caption,
+            new_images=uploaded_urls,
+            images_to_delete=images_to_delete or [],
         )
 
         if not updated_post:
@@ -231,10 +196,10 @@ async def update_post(
 
         return updated_post
 
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Unexpected error occurred")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Unexpected error occurred: {str(e)}"
+        )
 
 
 @router.delete("/{id}", status_code=204)
@@ -271,8 +236,9 @@ async def delete_post(
 
         await post_repo.delete_post(db, post)
 
-        return 
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Unexpected error occurred")
+        return
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Unexpected error occurred: {str(e)}"
+        )
