@@ -8,3 +8,6 @@ wheels/
 # Virtual environments
 .venv
 .env
+.claude
+node_modules
+frontend-winad
