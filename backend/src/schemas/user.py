@@ -1,15 +1,12 @@
-from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 
 
 class UserCreate(BaseModel):
     email: EmailStr
-    username: str
-    password: str
+    username: str = Field(..., min_length=5, max_length=40)
+    password: str = Field(..., min_length=8, max_length=50)
     is_private: bool = False
-   
-    
 
 
 class UserLogin(BaseModel):
@@ -27,4 +24,3 @@ class UserOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-

@@ -2,16 +2,24 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from backend.src.database.models.like import Like
+from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
-from src.core.constants import MAX_IMAGES
+from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
-from src.repositories.post_image_repo import _add_post_images,_delete_post_images
+from src.repositories.post_image_repo import add_post_images, delete_post_images
+from sqlalchemy import select, func, exists
+
 
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     stmt = (
         select(Post)
-        .options(selectinload(Post.owner), selectinload(Post.images))
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images),
+            selectinload(Post.likes),
+        )
         .where(Post.id == post_id)
     )
 
@@ -20,29 +28,32 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
 
 
 async def get_posts(
-    db: AsyncSession, limit: int, skip: int, search: str | None = None
-) -> list[Post]:
-    """
-        Retrieve a paginated list of posts with optional search filtering.
+    db: AsyncSession,
+    *,
+    limit: int,
+    skip: int,
+    user_id: int,
+    search: str | None = None,
+):
+    likes_subquery = (
+        select(Like.post_id, func.count(Like.id).label("likes_count"))
+        .group_by(Like.post_id)
+        .subquery()
+    )
 
-    This function queries the database for posts using SQLAlchemy 2.0 async
-    style. It supports pagination and optional filtering by post caption.
-    Related entities such as the post owner and images are eagerly loaded
-    using `selectinload` to avoid N+1 query issues.
-
-    Args:
-        db (AsyncSession): The asynchronous database session used for querying.
-        limit (int): Maximum number of posts to return.
-        skip (int): Number of posts to skip (used for pagination).
-        search (str | None, optional): Optional search string to filter posts
-            by caption (case-insensitive partial match). Defaults to None.
-
-    Returns:
-        list[Post]: A list of post objects.
-    """
     stmt = (
-        select(Post)
-        .options(selectinload(Post.owner), selectinload(Post.images))
+        select(
+            Post,
+            func.coalesce(likes_subquery.c.likes_count, 0).label("likes_count"),
+            exists()
+            .where(Like.post_id == Post.id, Like.user_id == user_id)
+            .label("is_liked"),
+        )
+        .outerjoin(likes_subquery, Post.id == likes_subquery.c.post_id)
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images),
+        )
         .limit(limit)
         .offset(skip)
     )
@@ -51,7 +62,27 @@ async def get_posts(
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
     result = await db.execute(stmt)
-    return result.scalars().all()
+
+    rows = result.all()
+
+    response = []
+
+    for post, likes_count, is_liked in rows:
+        response.append(
+            PostResponse(
+                id=post.id,
+                caption=post.caption,
+                created_at=post.created_at,
+                updated_at=post.updated_at,
+                user_id=post.user_id,
+                owner=post.owner,
+                images=post.images,
+                likes_count=likes_count,
+                is_liked=is_liked,
+            )
+        )
+
+    return response
 
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
@@ -74,35 +105,32 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     if len(post.images) > MAX_IMAGES:
         raise Exception(f"A post can have maximum {MAX_IMAGES} images")
 
-    try:
+    new_post = Post(caption=post.caption, user_id=user_id)
+    db.add(new_post)
+    await db.flush()
 
-        new_post = Post(caption=post.caption, user_id=user_id)
-        db.add(new_post)
-        await db.flush()
-
-        images = [
-            PostImage(post_id=new_post.id, image_url=image.image_url,public_id=image.public_id )
-            for image in post.images
-        ]
-
-        db.add_all(images)
-        await db.commit()
-        await db.refresh(new_post)
-
-        result = await db.execute(
-            select(Post)
-            .options(selectinload(Post.images), selectinload(Post.owner))
-            .where(Post.id == new_post.id)
+    images = [
+        PostImage(
+            post_id=new_post.id,
+            image_url=image.image_url,
+            public_id=image.public_id,
         )
+        for image in post.images
+    ]
 
-        return result.scalar_one()
+    db.add_all(images)
+    await db.commit()
 
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create post: {str(e)}")
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.images), selectinload(Post.owner))
+        .where(Post.id == new_post.id)
+    )
+
+    return result.scalar_one()
 
 
-async def get_post(db: AsyncSession, post_id: int) -> Post | None:
+async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:
     """
     Retrieve a single post by its ID.
 
@@ -122,7 +150,22 @@ async def get_post(db: AsyncSession, post_id: int) -> Post | None:
     if not post:
         return None
 
-    return post
+    # return post
+    likes_count = len(post.likes)
+
+    is_liked = any(like.user_id == user_id for like in post.likes)
+
+    return PostResponse(
+        id=post.id,
+        caption=post.caption,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+        user_id=post.user_id,
+        owner=post.owner,
+        images=post.images,
+        likes_count=likes_count,
+        is_liked=is_liked,
+    )
 
 
 async def delete_post(db: AsyncSession, post: Post):
@@ -141,16 +184,21 @@ async def delete_post(db: AsyncSession, post: Post):
     Returns:
         Response: An empty HTTP response with status code 204 (No Content).
     """
+    for img in post.images:
+        if img.public_id:
+            await delete_image_from_cloudinary(img.public_id)
 
     await db.delete(post)
     await db.commit()
 
+
 async def update_post_repo(
     db: AsyncSession,
-    post_id: int,
-    user_id: int,
-    post_data:PostUpdate
-) -> Post | None:
+    post: Post,
+    caption: str | None,
+    new_images: list,
+    images_to_delete: list[int],
+) -> Post:
     """
     Update a post's caption and associated images.
 
@@ -165,37 +213,24 @@ async def update_post_repo(
     Args:
         db (AsyncSession): Asynchronous database session used for
             persistence operations.
-        post_id (int): ID of the post to be updated.
-        user_id (int): ID of the user performing the update (used for
-            ownership validation).
-        post_data (PostUpdate): Contains caption, new_images (as schema), and images_to_delete
-        images_to_delete (list[int] | None): List of image IDs to remove
+        post (Post): The post instance to be updated.
+        caption (str | None): Updated caption for the post.
+        new_images (list): List of new image URLs to add.
+        images_to_delete (list[int]): List of image IDs to remove
             from the post.
 
     Returns:
         Post | None: The updated post instance if successful.
     """
-
-    try:
-        post= await get_post_by_id(db,post_id)
-        caption=post_data.caption
-        new_images = post_data.new_images 
-        images_to_delete = post_data.images_to_delete 
-
+    async with db.begin():
         if images_to_delete:
-            await _delete_post_images(post, images_to_delete, db)
+            await delete_post_images(post, images_to_delete, db)
 
-        if new_images and len(new_images) > 0:
-            await _add_post_images(post, new_images, db)
+            if new_images:
+                await add_post_images(post, new_images, db)
 
-        if caption is not None:
-            post.caption = caption
+            if caption is not None:
+                post.caption = caption
 
-        await db.commit()
-        await db.refresh(post)
-
-        return post
-
-    except Exception:
-        await db.rollback()
-        raise
+    await db.refresh(post)
+    return post

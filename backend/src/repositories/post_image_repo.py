@@ -1,10 +1,14 @@
+import asyncio
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post import Post
 from src.database.models.post_image import PostImage
 from sqlalchemy.ext.asyncio import AsyncSession
+from loguru import logger
 
-async def _delete_post_images(post: Post, image_ids: list[int], db: AsyncSession):
-    
+
+async def delete_post_images(
+    post: Post, image_ids: list[int], db: AsyncSession
+) -> None:
     """
      Remove specified images associated with a post.
 
@@ -21,24 +25,35 @@ async def _delete_post_images(post: Post, image_ids: list[int], db: AsyncSession
     Returns:
         None
     """
+    if not image_ids:
+        return
+
+    image_ids = set(image_ids)
     remaining = []
+    delete_tasks = []
 
     for img in post.images:
         if img.id in image_ids:
-            await delete_image_from_cloudinary(img.public_id)
+            if img.public_id:
+                delete_tasks.append(delete_image_from_cloudinary(img.public_id))
         else:
             remaining.append(img)
 
+    if delete_tasks:
+        results = (
+            await asyncio.gather(*delete_tasks, return_exceptions=True)
+            if delete_tasks
+            else []
+        )
+
     post.images = remaining
 
-    # async def _delete_post_images(post: Post, image_ids: list[int], db: AsyncSession):
-    #     for img in list(post.images):
-    #         if img.id in image_ids:
-    #             await delete_image_from_cloudinary(img.public_id)  # external cleanup
-    # post.images = [img for img in post.images if img.id not in image_ids]  # ORM cascade handles DB
+    for r in results:
+        if isinstance(r, Exception):
+            logger.error(f"Cloudinary delete failed: {r}")
 
 
-async def _add_post_images(post: Post, images: list[PostImage], db: AsyncSession):
+async def add_post_images(post: Post, images: list[PostImage], db: AsyncSession):
     """Associate new images with a post.
 
     This function links each provided image to the given post by setting
@@ -54,14 +69,8 @@ async def _add_post_images(post: Post, images: list[PostImage], db: AsyncSession
         None
     """
     db_images = [
-        PostImage(
-            post_id=post.id,
-            image_url=img.image_url,
-            public_id=img.public_id
-        )
+        PostImage(post_id=post.id, image_url=img.image_url, public_id=img.public_id)
         for img in images
     ]
 
     db.add_all(db_images)
-    # post.images.extend(images)
-   
