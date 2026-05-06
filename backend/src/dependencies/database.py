@@ -9,4 +9,12 @@ async def get_pg_db() -> AsyncIterator[AsyncSession]:
     logger.debug("Acquiring DB session via dependency")
     async with sessionmanager.session() as session:
         yield session
+        # try:
+        #     yield session
+        #     await session.commit()
+        # except Exception:
+        #     await session.rollback()
+        #     raise
+        # finally:
+        #     await session.close()
     logger.debug("DB session released via dependency")

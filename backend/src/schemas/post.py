@@ -2,8 +2,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List
 from src.schemas.user import UserOut
-from src.schemas.post_image import PostImageCreate, PostImageResponse, PostImageUpdate
-from src.schemas.like import LikeResponse
+from src.schemas.post_image import PostImageCreate, PostImageResponse
 
 
 class PostBase(BaseModel):
@@ -30,10 +29,3 @@ class PostResponse(PostBase):
     likes_count: int = 0
     is_liked: bool = False
     model_config = {"from_attributes": True}
-
-
-# class PostOut(BaseModel):
-#     post: PostResponse
-#     likes: LikeResponse
-
-#     model_config = {"from_attributes": True}

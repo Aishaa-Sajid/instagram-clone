@@ -1,8 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from collections.abc import Sequence
-
 from src.database.models.comment import Comment
 from src.schemas.comment import CommentCreate, CommentUpdate
 
@@ -66,10 +64,6 @@ async def get_comment_by_id(
     """
     result = await db.execute(
         select(Comment)
-        .options(
-            selectinload(Comment.user),
-            selectinload(Comment.post),
-        )
         .where(Comment.id == comment_id)
     )
     return result.scalar_one_or_none()
@@ -103,7 +97,6 @@ async def get_comments_by_post(
     """
     result = await db.execute(
         select(Comment)
-        .options(selectinload(Comment.user))
         .where(Comment.post_id == post_id)
         .order_by(Comment.created_at.desc())
         .limit(limit)
@@ -140,7 +133,6 @@ async def get_comments_by_user(
     """
     result = await db.execute(
         select(Comment)
-        .options(selectinload(Comment.post))
         .where(Comment.user_id == user_id)
         .order_by(Comment.created_at.desc())
         .limit(limit)
@@ -172,12 +164,6 @@ async def update_comment(
     Returns:
         Comment: The updated Comment ORM instance.
     """
-    # update_data = data.model_dump(exclude_unset=True)
-
-    # for key, value in update_data.items():
-    #     if hasattr(comment, key):
-    #         setattr(comment, key, value)
-
     if data.content is not None:
         comment.content = data.content
 

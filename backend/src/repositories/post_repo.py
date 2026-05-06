@@ -2,13 +2,13 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from src.database.models.like import Like
+from backend.src.database.models.like import Like
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
-from src.repositories.post_image_repo import _add_post_images, _delete_post_images
+from src.repositories.post_image_repo import add_post_images, delete_post_images
 from sqlalchemy import select, func, exists
 
 
@@ -35,10 +35,7 @@ async def get_posts(
     search: str | None = None,
 ):
     likes_subquery = (
-        select(
-            Like.post_id,
-            func.count(Like.id).label("likes_count")
-        )
+        select(Like.post_id, func.count(Like.id).label("likes_count"))
         .group_by(Like.post_id)
         .subquery()
     )
@@ -47,10 +44,9 @@ async def get_posts(
         select(
             Post,
             func.coalesce(likes_subquery.c.likes_count, 0).label("likes_count"),
-            exists().where(
-                Like.post_id == Post.id,
-                Like.user_id == user_id
-            ).label("is_liked")
+            exists()
+            .where(Like.post_id == Post.id, Like.user_id == user_id)
+            .label("is_liked"),
         )
         .outerjoin(likes_subquery, Post.id == likes_subquery.c.post_id)
         .options(
@@ -65,6 +61,27 @@ async def get_posts(
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
     result = await db.execute(stmt)
+
+    rows = result.all()
+
+    response = []
+
+    for post, likes_count, is_liked in rows:
+        response.append(
+            PostResponse(
+                id=post.id,
+                caption=post.caption,
+                created_at=post.created_at,
+                updated_at=post.updated_at,
+                user_id=post.user_id,
+                owner=post.owner,
+                images=post.images,
+                likes_count=likes_count,
+                is_liked=is_liked,
+            )
+        )
+
+    return response
 
     rows = result.all()
 
@@ -107,34 +124,29 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     if len(post.images) > MAX_IMAGES:
         raise Exception(f"A post can have maximum {MAX_IMAGES} images")
 
-    async with db.begin():
-      
-        new_post = Post(caption=post.caption, user_id=user_id)
-        db.add(new_post)
-        await db.flush()
+    new_post = Post(caption=post.caption, user_id=user_id)
+    db.add(new_post)
+    await db.flush()
 
-        images = [
-            PostImage(
-                post_id=new_post.id,
-                image_url=image.image_url,
-                public_id=image.public_id,
-            )
-            for image in post.images
-        ]
+    images = [
+        PostImage(
+            post_id=new_post.id,
+            image_url=image.image_url,
+            public_id=image.public_id,
+        )
+        for image in post.images
+    ]
 
-        db.add_all(images)
-        await db.commit()
-        await db.refresh(new_post)
+    db.add_all(images)
+    await db.commit()
 
     result = await db.execute(
-            select(Post)
-            .options(selectinload(Post.images), selectinload(Post.owner))
-            .where(Post.id == new_post.id)
-        )
+        select(Post)
+        .options(selectinload(Post.images), selectinload(Post.owner))
+        .where(Post.id == new_post.id)
+    )
 
     return result.scalar_one()
-
-
 
 
 async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:
@@ -202,7 +214,6 @@ async def delete_post(db: AsyncSession, post: Post):
 async def update_post_repo(
     db: AsyncSession,
     post: Post,
-    # user_id: int,
     caption: str | None,
     new_images: list,
     images_to_delete: list[int],
@@ -232,10 +243,10 @@ async def update_post_repo(
     """
     async with db.begin():
         if images_to_delete:
-            await _delete_post_images(post, images_to_delete, db)
+            await delete_post_images(post, images_to_delete, db)
 
             if new_images:
-                await _add_post_images(post, new_images, db)
+                await add_post_images(post, new_images, db)
 
             if caption is not None:
                 post.caption = caption

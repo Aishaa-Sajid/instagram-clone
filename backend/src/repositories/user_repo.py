@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
-from fastapi import HTTPException
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, update, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.utils.password_verification import hash
@@ -8,6 +7,7 @@ from src.schemas.user import UserCreate, UserOut
 from src.database.models.user import User
 import secrets
 from src.services.email_service import send_verification_email
+from loguru import logger
 
 # from src.services.mail.mail_service import send_verification_email
 from loguru import logger
@@ -32,7 +32,7 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def get_user_by_email(db: AsyncSession, email: str):
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     """
     Fetch user by email from database.
 
@@ -71,7 +71,7 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
         **user.model_dump(exclude={"password"}),
         password=hashed_password,
         verification_token=verification_token,
-        is_verified=False
+        is_verified=False,
     )
     db.add(new_user)
     await db.commit()
@@ -89,7 +89,7 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
 
 async def update_user(
     db: AsyncSession,
-    user_id: int,
+    user: User,
     bio: str | None = None,
     is_private: bool | None = None,
     image_url: str | None = None,
@@ -114,9 +114,6 @@ async def update_user(
         User | None: The updated user object if found, otherwise None.
 
     """
-
-    user = await get_user_by_id(db, user_id)
-
     if not user:
         return None
 
@@ -185,3 +182,53 @@ async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
     await db.commit()
 
     return True
+
+
+async def search_users(
+    db: AsyncSession,
+    query: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[User]:
+    """
+    Search users by username using PostgreSQL trigram similarity.
+
+    This function performs a fuzzy search on usernames using trigram
+    similarity and prefix matching. Results are ranked by similarity score.
+
+    Args:
+        db (AsyncSession): Asynchronous database session.
+        query (str): Search query string entered by user.
+        limit (int, optional): Maximum number of results to return. Defaults to 20.
+        offset (int, optional): Number of records to skip for pagination. Defaults to 0.
+
+    Returns:
+        list[User]: List of matching users.
+
+    Raises:
+        Exception: If database query execution fails.
+    """
+    try:
+        similarity_threshold = 0.3
+
+        stmt = (
+            select(User)
+            .where(
+                User.deleted_at.is_(None),
+                or_(
+                    User.username.ilike(f"{query}%"),  # prefix match
+                    func.similarity(User.username, query)
+                    > similarity_threshold,  # fuzzy match
+                ),
+            )
+            .order_by(func.similarity(User.username, query).desc())
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await db.execute(stmt)
+        return result.scalars().all()
+
+    except Exception as e:
+        logger.error(f"Error in search_users: {e}")
+        raise Exception("Failed to search users")

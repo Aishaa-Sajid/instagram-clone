@@ -8,15 +8,10 @@ class Like(TimestampMixin, Base):
     __tablename__ = "likes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-
-    post_id: Mapped[int] = mapped_column(
-        ForeignKey("posts.id", ondelete="CASCADE"), nullable=False
-    )
-
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     user = relationship("User", back_populates="likes")
     post = relationship("Post", back_populates="likes")
 

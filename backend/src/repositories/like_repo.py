@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.like import Like
 
 
-async def toggle_like(db: AsyncSession, user_id: int, post_id: int):
+async def toggle_like(db: AsyncSession, user_id: int, post_id: int) -> bool:
     """
     Toggle like status for a given user and post.
 
@@ -39,7 +39,7 @@ async def toggle_like(db: AsyncSession, user_id: int, post_id: int):
         raise Exception("Failed to toggle like") from e
 
 
-async def get_like_count(db: AsyncSession, post_id: int):
+async def get_like_count(db: AsyncSession, post_id: int) -> int:
     """
     Get total number of likes for a specific post.
 
