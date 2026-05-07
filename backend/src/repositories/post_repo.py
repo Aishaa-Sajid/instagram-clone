@@ -26,7 +26,6 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
-
 async def get_posts(
     db: AsyncSession,
     *,
@@ -83,7 +82,6 @@ async def get_posts(
         )
 
     return response
-
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
@@ -150,7 +148,6 @@ async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse
     if not post:
         return None
 
-    # return post
     likes_count = len(post.likes)
 
     is_liked = any(like.user_id == user_id for like in post.likes)

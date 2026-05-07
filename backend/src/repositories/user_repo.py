@@ -9,6 +9,9 @@ import secrets
 from src.services.email_service import send_verification_email
 from loguru import logger
 
+# from src.services.mail.mail_service import send_verification_email
+from loguru import logger
+
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """
