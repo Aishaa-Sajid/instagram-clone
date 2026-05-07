@@ -44,6 +44,7 @@ async def create_story(
             db=db,
             user_id=current_user.id,
             media_url=uploaded.url,
+            public_id=uploaded.public_id,
         )
 
     except Exception as e:
@@ -73,8 +74,16 @@ async def get_stories(
         list[StoryResponse]: List of active story objects.
 
     """
-    return await story_repo.get_active_stories(
-        db=db,
-        skip=skip,
-        limit=limit,
-    )
+    try:
+        stories = await story_repo.get_active_stories(
+            db=db,
+            skip=skip,
+            limit=limit,
+        )
+        return stories
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch stories: {str(e)}"
+        )

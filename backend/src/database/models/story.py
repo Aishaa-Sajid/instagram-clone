@@ -17,9 +17,6 @@ class Story(TimestampMixin, Base):
     )
 
     media_url: Mapped[str] = mapped_column(String, nullable=False)
-
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
-    )
+    public_id: Mapped[str] = mapped_column(String, nullable=False)
 
     story_owner = relationship("User", back_populates="stories")

@@ -219,15 +219,21 @@ async def update_post_repo(
     Returns:
         Post | None: The updated post instance if successful.
     """
-    async with db.begin():
+    try:
         if images_to_delete:
             await delete_post_images(post, images_to_delete, db)
 
-            if new_images:
-                await add_post_images(post, new_images, db)
+        if new_images:
+            await add_post_images(post, new_images, db)
 
-            if caption is not None:
-                post.caption = caption
+        if caption is not None:
+            post.caption = caption
 
-    await db.refresh(post)
-    return post
+        await db.commit()
+        await db.refresh(post)
+
+        return post
+
+    except Exception as e:
+        await db.rollback()
+        raise Exception(f"Failed to update post: {str(e)}")

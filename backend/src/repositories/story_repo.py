@@ -1,3 +1,4 @@
+from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
@@ -11,47 +12,38 @@ async def create_story(
     *,
     user_id: int,
     media_url: str,
+    public_id: str,
 ) -> Story:
     """
-     Create a new story with a time-based expiration.
+     Create a new story for a user.
 
-    This function creates a story record for a user, assigns an expiration
-    time (currently set to 5 minutes for testing or development purposes),
-    persists it to the database, and returns the fully loaded story object
-    including its owner relationship.
+    This function creates and stores a new story record in the database
+    using the provided media URL and user ID. Story expiration is handled
+    dynamically using the `created_at` timestamp instead of storing a
+    separate expiration field.
 
     Args:
-        db (AsyncSession): Database session used for persistence operations.
-        user_id (int): ID of the user who owns the story.
-        media_url (str): URL of the uploaded media file.
+        db (AsyncSession): Active database session used for persistence.
+        user_id (int): ID of the user creating the story.
+        media_url (str): URL of the uploaded story media.
 
     Returns:
-        Story: The created story instance with loaded relationships.
+        Story: The newly created story instance.
 
     """
     try:
-        # expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-
-
         story = Story(
             user_id=user_id,
             media_url=media_url,
-            expires_at=expires_at,
+            public_id=public_id,
         )
 
         db.add(story)
         await db.commit()
         await db.refresh(story)
 
-        result = await db.execute(
-            select(Story)
-            .options(selectinload(Story.story_owner))
-            .where(Story.id == story.id)
-        )
-
-        return result.scalar_one()
-
+        return story
+    
     except Exception as e:
         await db.rollback()
         raise Exception(f"Failed to create story: {str(e)}")
@@ -64,27 +56,28 @@ async def get_active_stories(
     limit: int,
 ) -> list[Story]:
     """
-    Retrieve active (non-expired) stories with pagination.
+    Retrieve active stories with pagination.
 
-    This function fetches stories whose expiration time has not passed,
-    orders them by most recently created, and applies pagination using
-    skip and limit values.
+    A story is considered active if it was created within the
+    last 24 hours. The function fetches active stories ordered
+    by newest first and applies pagination.
 
     Args:
-        db (AsyncSession): Database session used for querying.
-        skip (int): Number of records to skip (pagination offset).
-        limit (int): Maximum number of stories to return.
+        db (AsyncSession): Active database session used for querying.
+        skip (int): Number of records to skip for pagination.
+        limit (int): Maximum number of records to return.
 
     Returns:
-        list[Story]: List of active (non-expired) story objects.
+        list[Story]: List of active story objects with loaded owner data.
         
     """
     now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=2)
 
     stmt = (
         select(Story)
         .options(selectinload(Story.story_owner))
-        .where(Story.expires_at > now)
+        .where(Story.created_at >= cutoff)
         .order_by(Story.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -94,18 +87,45 @@ async def get_active_stories(
     return result.scalars().all()
 
 
-# async def delete_expired_stories(db: AsyncSession) -> int:
-#     """
-#     Delete expired stories from database.
 
-#     Returns:
-#         int: Number of deleted records.
-#     """
-#     now = datetime.now(timezone.utc)
+async def delete_expired_stories(db: AsyncSession) -> int:
+    """
+    Delete expired stories from the database.
 
-#     stmt = delete(Story).where(Story.expires_at <= now)
+    A story is considered expired if it was created more than
+    24 hours ago. This function permanently removes expired
+    stories from the database.
 
-#     result = await db.execute(stmt)
-#     await db.commit()
+    Args:
+        db (AsyncSession): Active database session used for deletion.
 
-#     return result.rowcount
+    Returns:
+        int: Number of deleted story records.
+    """
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+
+        stmt = select(Story).where(
+            Story.created_at <= cutoff
+        )
+
+        result = await db.execute(stmt)
+        expired_stories = result.scalars().all()
+
+        deleted_count = 0
+
+        for story in expired_stories:
+
+            await delete_image_from_cloudinary(story.public_id)
+
+            await db.delete(story)
+
+            deleted_count += 1
+
+        await db.commit()
+
+        return deleted_count
+     
+    except Exception as e:
+        await db.rollback()
+        raise Exception(f"Failed to delete expired stories: {str(e)}")

@@ -9,9 +9,6 @@ import secrets
 from src.services.email_service import send_verification_email
 from loguru import logger
 
-# from src.services.mail.mail_service import send_verification_email
-from loguru import logger
-
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """
@@ -216,9 +213,9 @@ async def search_users(
             .where(
                 User.deleted_at.is_(None),
                 or_(
-                    User.username.ilike(f"{query}%"),  # prefix match
+                    User.username.ilike(f"{query}%"),
                     func.similarity(User.username, query)
-                    > similarity_threshold,  # fuzzy match
+                    > similarity_threshold, 
                 ),
             )
             .order_by(func.similarity(User.username, query).desc())

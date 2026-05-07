@@ -15,10 +15,9 @@ async def lifespan(app: FastAPI):
     print("App shutting down...")
 
 
-# Initialize the FastAPI app
+
 app = FastAPI(title="Blog Post", version="1.0.0", lifespan=lifespan)
 
-# allow cors
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
