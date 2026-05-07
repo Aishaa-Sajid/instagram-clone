@@ -2,7 +2,7 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from backend.src.database.models.like import Like
+from src.database.models.like import Like
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
@@ -61,27 +61,6 @@ async def get_posts(
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
     result = await db.execute(stmt)
-
-    rows = result.all()
-
-    response = []
-
-    for post, likes_count, is_liked in rows:
-        response.append(
-            PostResponse(
-                id=post.id,
-                caption=post.caption,
-                created_at=post.created_at,
-                updated_at=post.updated_at,
-                user_id=post.user_id,
-                owner=post.owner,
-                images=post.images,
-                likes_count=likes_count,
-                is_liked=is_liked,
-            )
-        )
-
-    return response
 
     rows = result.all()
 
@@ -169,7 +148,6 @@ async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse
     if not post:
         return None
 
-    # return post
     likes_count = len(post.likes)
 
     is_liked = any(like.user_id == user_id for like in post.likes)
