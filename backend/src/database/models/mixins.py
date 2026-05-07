@@ -15,5 +15,5 @@ class TimestampMixin:
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),
-        server_onupdate=func.now(),
+        onupdate=func.now(),
     )

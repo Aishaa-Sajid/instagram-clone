@@ -9,10 +9,8 @@ from sqlalchemy import select
 bearer_scheme = HTTPBearer()
 
 SECRET_KEY: str = settings.SECRET_KEY
-REFRESH_SECRET_KEY: str = settings.REFRESH_SECRET_KEY
 ALGORITHM: str = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES: int = settings.ACCESS_TOKEN_EXPIRE_MINUTES
-REFRESH_TOKEN_EXPIRE_DAYS: int = settings.REFRESH_TOKEN_EXPIRE_DAYS
 
 
 credentials_exception = HTTPException(
@@ -36,22 +34,9 @@ def create_access_token(data: dict) -> str:
 
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({"exp": expire, "type": "access"})
+    to_encode.update({"exp": expire})
 
     token: str = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return token
-
-
-def create_refresh_token(data: dict) -> str:
-
-    to_encode = data.copy()
-
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-
-    to_encode.update({"exp": expire, "type": "refresh"})
-
-    token = jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
-
     return token
 
 
@@ -70,32 +55,7 @@ def verify_access_token(token: str) -> dict:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
         user_id = payload.get("user_id")
-        token_type = payload.get("type")
-
         if user_id is None:
-            raise credentials_exception
-
-        if token_type != "access":
-            raise credentials_exception
-
-        return {"user_id": user_id}
-
-    except JWTError:
-        raise credentials_exception
-
-
-def verify_refresh_token(token: str) -> dict:
-
-    try:
-        payload = jwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
-
-        user_id = payload.get("user_id")
-        token_type = payload.get("type")
-
-        if user_id is None:
-            raise credentials_exception
-
-        if token_type != "refresh":
             raise credentials_exception
 
         return {"user_id": user_id}

@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.user import User
 from src.dependencies.database import get_pg_db
-from src.utils.password_verification import verify
+from src.utils.password_verification import hash, verify
 from src.core import security
 from src.repositories.user_repo import get_user_by_email
-from src.schemas.auth import Token, RefreshTokenRequest, AccessTokenResponse
+from src.schemas.auth import Token
 from src.schemas.user import UserLogin
 from sqlalchemy import select
 from src.schemas.mail_response import VerifyEmailResponse
@@ -52,9 +52,8 @@ async def login(
         )
 
     access_token = security.create_access_token(data={"user_id": user.id})
-    refresh_token = security.create_refresh_token(data={"user_id": user.id})
 
-    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+    return Token(access_token=access_token, token_type="bearer")
 
 
 @router.get("/verify-email")
@@ -86,33 +85,3 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
     await db.commit()
 
     return VerifyEmailResponse(message="Email verified successfully")
-
-@router.post("/refresh", response_model=AccessTokenResponse)
-async def refresh_token(payload: RefreshTokenRequest):
-    """
-    Refresh JWT access token using a valid refresh token.
-
-    This endpoint validates the provided refresh token, generates a new
-    access token, and returns both the new access token and the same
-    refresh token.
-
-    Args:
-        payload (RefreshTokenRequest): The request body containing the refresh token.
-        db (AsyncSession): The asynchronous database session.
-
-    Returns:
-        AccessTokenResponse: A response containing the new access token and token type.
-
-    """
-    decoded = security.verify_refresh_token(payload.refresh_token)
-
-    user_id = decoded["user_id"]
-
-    new_access_token = security.create_access_token({
-        "user_id": user_id
-    })
-
-    return {
-        "access_token": new_access_token,
-        "token_type": "bearer"
-    }

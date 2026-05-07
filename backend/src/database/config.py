@@ -2,14 +2,13 @@ from pydantic_settings import BaseSettings
 import contextlib
 from typing import Any
 from collections.abc import AsyncIterator
-from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase
 from loguru import logger
 
 from src.core.settings import PostgresDatabaseSettings
@@ -111,13 +110,3 @@ sessionmanager = DatabaseSessionManager(
     {"echo": settings.echo_sql, "pool_pre_ping": True},
 )
 
-sync_engine = create_engine(
-    SQLALCHEMY_DATABASE_URL.replace("+asyncpg", "+psycopg2"),
-    pool_pre_ping=True,
-)
-
-SessionLocal = sessionmaker(
-    bind=sync_engine,
-    autocommit=False,
-    autoflush=False,
-)
