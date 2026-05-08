@@ -8,4 +8,3 @@ from src.database.models.story import Story
 from src.database.models.follow import Follow
 
 __all__ = ["Base", "User", "Post", "PostImage", "Like", "Comment", "Story", "Follow"]
-
