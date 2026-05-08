@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toggleLike } from '@/api/likes'
 
 function formatRelative(iso) {
   if (!iso) return ''
@@ -14,7 +15,9 @@ function formatRelative(iso) {
 export function PostCard({ post }) {
   const images = post.images ?? []
   const [index, setIndex] = useState(0)
-  const [liked, setLiked] = useState(false)
+  const [liked, setLiked] = useState(Boolean(post.is_liked))
+  const [likesCount, setLikesCount] = useState(post.likes_count ?? 0)
+  const [likePending, setLikePending] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const owner = post.owner ?? {}
@@ -23,6 +26,25 @@ export function PostCard({ post }) {
 
   const next = () => setIndex((i) => Math.min(i + 1, images.length - 1))
   const prev = () => setIndex((i) => Math.max(i - 1, 0))
+
+  const handleToggleLike = async () => {
+    if (likePending) return
+    const prevLiked = liked
+    const prevCount = likesCount
+    setLiked(!prevLiked)
+    setLikesCount(prevCount + (prevLiked ? -1 : 1))
+    setLikePending(true)
+    try {
+      const data = await toggleLike(post.id)
+      setLiked(Boolean(data?.liked))
+      setLikesCount(data?.likes_count ?? prevCount)
+    } catch {
+      setLiked(prevLiked)
+      setLikesCount(prevCount)
+    } finally {
+      setLikePending(false)
+    }
+  }
 
   return (
     <article className="bg-white mb-3 mb-sm-4 overflow-hidden post-card">
@@ -111,7 +133,8 @@ export function PostCard({ post }) {
       <div className="px-3 pt-2 pb-1 d-flex align-items-center gap-3">
         <button
           type="button"
-          onClick={() => setLiked((v) => !v)}
+          onClick={handleToggleLike}
+          disabled={likePending}
           aria-label={liked ? 'Unlike' : 'Like'}
           className="btn btn-link p-0 text-dark post-action-btn"
         >
@@ -165,6 +188,11 @@ export function PostCard({ post }) {
       </div>
 
       <div className="px-3 pb-3">
+        {likesCount > 0 && (
+          <p className="mb-1 small fw-semibold">
+            {likesCount} {likesCount === 1 ? 'like' : 'likes'}
+          </p>
+        )}
         {post.caption && (
           <p className="mb-1 small">
             <span className="fw-semibold me-2">{username}</span>
