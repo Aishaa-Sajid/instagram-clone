@@ -28,4 +28,5 @@ class PostResponse(PostBase):
     images: List[PostImageResponse] = Field(default_factory=list)
     likes_count: int = 0
     is_liked: bool = False
+    
     model_config = {"from_attributes": True}

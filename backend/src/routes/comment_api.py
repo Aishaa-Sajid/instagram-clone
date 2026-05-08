@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Annotated
-
 from src.dependencies.database import get_pg_db
 from src.dependencies.auth import get_current_user
 from src.database.models.user import User
-
 from src.schemas.comment import CommentCreate, CommentUpdate, CommentResponse
 from src.repositories import comment_repo
 from src.repositories.post_repo import get_post_by_id

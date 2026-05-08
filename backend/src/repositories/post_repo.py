@@ -2,7 +2,7 @@ from fastapi import HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from backend.src.database.models.like import Like
+from src.database.models.like import Like
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
 from src.schemas.post import PostCreate, PostResponse, PostUpdate
@@ -25,7 +25,6 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
 
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
-
 
 async def get_posts(
     db: AsyncSession,
@@ -83,7 +82,6 @@ async def get_posts(
         )
 
     return response
-
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
@@ -150,7 +148,6 @@ async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse
     if not post:
         return None
 
-    # return post
     likes_count = len(post.likes)
 
     is_liked = any(like.user_id == user_id for like in post.likes)
@@ -222,15 +219,21 @@ async def update_post_repo(
     Returns:
         Post | None: The updated post instance if successful.
     """
-    async with db.begin():
+    try:
         if images_to_delete:
             await delete_post_images(post, images_to_delete, db)
 
-            if new_images:
-                await add_post_images(post, new_images, db)
+        if new_images:
+            await add_post_images(post, new_images, db)
 
-            if caption is not None:
-                post.caption = caption
+        if caption is not None:
+            post.caption = caption
 
-    await db.refresh(post)
-    return post
+        await db.commit()
+        await db.refresh(post)
+
+        return post
+
+    except Exception as e:
+        await db.rollback()
+        raise Exception(f"Failed to update post: {str(e)}")

@@ -213,9 +213,9 @@ async def search_users(
             .where(
                 User.deleted_at.is_(None),
                 or_(
-                    User.username.ilike(f"{query}%"),  # prefix match
+                    User.username.ilike(f"{query}%"),
                     func.similarity(User.username, query)
-                    > similarity_threshold,  # fuzzy match
+                    > similarity_threshold, 
                 ),
             )
             .order_by(func.similarity(User.username, query).desc())
