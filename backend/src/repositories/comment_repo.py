@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from collections.abc import Sequence
 from src.database.models.comment import Comment
 from src.schemas.comment import CommentCreate, CommentUpdate
@@ -37,7 +38,7 @@ async def create_comment(
 
     db.add(comment)
     await db.commit()
-    await db.refresh(comment)
+    await db.refresh(comment, attribute_names=["user"])
 
     return comment
 
@@ -64,6 +65,7 @@ async def get_comment_by_id(
     """
     result = await db.execute(
         select(Comment)
+        .options(selectinload(Comment.user))
         .where(Comment.id == comment_id)
     )
     return result.scalar_one_or_none()
@@ -97,6 +99,7 @@ async def get_comments_by_post(
     """
     result = await db.execute(
         select(Comment)
+        .options(selectinload(Comment.user))
         .where(Comment.post_id == post_id)
         .order_by(Comment.created_at.desc())
         .limit(limit)
@@ -168,7 +171,7 @@ async def update_comment(
         comment.content = data.content
 
     await db.commit()
-    await db.refresh(comment)
+    await db.refresh(comment, attribute_names=["user"])
 
     return comment
 
