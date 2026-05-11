@@ -110,7 +110,11 @@ async def get_follow_requests(db: AsyncSession, current_user: User):
         List[Follow]: List of pending follow requests.
     """
     result = await db.execute(
-        select(Follow).where(
+        select(Follow)
+        .options(
+            selectinload(Follow.follower),
+        )
+        .where(
             Follow.following_id == current_user.id,
             Follow.status == FollowStatus.PENDING,
         )
