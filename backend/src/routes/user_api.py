@@ -31,6 +31,20 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_pg_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get('/me', response_model=UserOut)
+async def get_current_user_profile(
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    """
+    Retrieve the profile of the currently authenticated user.
+
+    This endpoint returns the details of the user who is currently logged in.
+    It uses dependency injection to access the authenticated user's information.
+
+    Args:
+        current_user (User): The currently authenticated user (injected via dependency).
+    """
+    return current_user
 
 @router.get("/{id}", response_model=UserOut)
 async def get_user(id: int, db: AsyncSession = Depends(get_pg_db)):

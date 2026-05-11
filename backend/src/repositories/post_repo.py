@@ -1,11 +1,14 @@
-from fastapi import HTTPException, Response, status
+from operator import and_, or_
+from src.database.models.follow import Follow
+from src.database.models.user import User
+from src.utils.enum import FollowStatus
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.database.models.like import Like
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post_image import PostImage
-from src.schemas.post import PostCreate, PostResponse, PostUpdate
+from src.schemas.post import PostCreate, PostResponse
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
 from src.repositories.post_image_repo import add_post_images, delete_post_images
@@ -26,6 +29,25 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
+
+async def get_post_by_user_id(db: AsyncSession, post_id: int) -> Post | None:
+    stmt = (
+        select(Post)
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images),
+            selectinload(Post.likes),
+        )
+        .where(Post.id == post_id)
+        .joins(
+            Follow,
+        )
+    )
+
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def get_posts(
     db: AsyncSession,
     *,
@@ -33,9 +55,50 @@ async def get_posts(
     skip: int,
     user_id: int,
     search: str | None = None,
-):
+) -> list[PostResponse]:
+    """
+    Retrieve posts accessible to the authenticated user.
+
+    This function returns posts based on account privacy rules:
+
+        - Public account posts are visible to everyone.
+        - Users can always view their own posts.
+        - Private account posts are only visible to accepted followers.
+        - Pending or rejected follow requests do not grant access.
+
+    The response also includes:
+        - Total likes count for each post.
+        - Whether the authenticated user has liked the post.
+
+    Args:
+        db (AsyncSession): Asynchronous database session.
+        limit (int): Maximum number of posts to return.
+        skip (int): Number of posts to skip for pagination.
+        user_id (int): ID of the authenticated user.
+        search (str | None, optional): Optional caption search query.
+
+    Returns:
+        list[PostResponse]: List of accessible posts.
+    """
+
+    post_access_filter = (
+        (User.is_private.is_(False))
+        | (Post.user_id == user_id)
+        | (
+            (User.is_private.is_(True))
+            & exists().where(
+            Follow.following_id == Post.user_id,
+            Follow.follower_id == user_id,
+            Follow.status == FollowStatus.ACCEPTED,
+        )
+        )
+    )
+
     likes_subquery = (
-        select(Like.post_id, func.count(Like.id).label("likes_count"))
+        select(
+            Like.post_id,
+            func.count(Like.id).label("likes_count"),
+        )
         .group_by(Like.post_id)
         .subquery()
     )
@@ -43,16 +106,31 @@ async def get_posts(
     stmt = (
         select(
             Post,
-            func.coalesce(likes_subquery.c.likes_count, 0).label("likes_count"),
+            func.coalesce(
+                likes_subquery.c.likes_count,
+                0,
+            ).label("likes_count"),
             exists()
-            .where(Like.post_id == Post.id, Like.user_id == user_id)
+            .where(
+                Like.post_id == Post.id,
+                Like.user_id == user_id,
+            )
             .label("is_liked"),
         )
-        .outerjoin(likes_subquery, Post.id == likes_subquery.c.post_id)
+        .join(
+            User,
+            User.id == Post.user_id,
+        )
+        .outerjoin(
+            likes_subquery,
+            Post.id == likes_subquery.c.post_id,
+        )
+        .where(post_access_filter)
         .options(
             selectinload(Post.owner),
             selectinload(Post.images),
         )
+        .order_by(Post.created_at.desc())
         .limit(limit)
         .offset(skip)
     )
@@ -64,10 +142,10 @@ async def get_posts(
 
     rows = result.all()
 
-    response = []
+    posts: list[PostResponse] = []
 
     for post, likes_count, is_liked in rows:
-        response.append(
+        posts.append(
             PostResponse(
                 id=post.id,
                 caption=post.caption,
@@ -81,7 +159,8 @@ async def get_posts(
             )
         )
 
-    return response
+    return posts
+
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
@@ -128,26 +207,94 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     return result.scalar_one()
 
 
-async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:
+async def get_accessible_post(
+    db: AsyncSession,
+    post_id: int,
+    viewer_id: int,
+) -> Post:
     """
-    Retrieve a single post by its ID.
+    Retrieve a post only if the requesting user has permission
+    to access it.
 
-    This function fetches a post from the database using the provided
-    post ID. If the post does not exist, it returns None.
+    Access Rules:
+        - Users can always view their own posts.
+        - Public account posts are visible to everyone.
+        - Private account posts are only visible to accepted followers.
+
+    This query performs both post retrieval and authorization
+    validation in a single database query.
 
     Args:
-        db (AsyncSession): Asynchronous database session used for the
-            query operation.
-        post_id (int): ID of the post to retrieve.
+        db (AsyncSession):
+            Asynchronous database session.
+
+        post_id (int):
+            ID of the target post.
+
+        viewer_id (int):
+            ID of the user requesting access to the post.
 
     Returns:
-        Post | None: The post instance if found, otherwise None.
+        Post:
+            The requested post if access is allowed.
     """
-    post = await get_post_by_id(db, post_id)
 
+    stmt = (
+        select(Post)
+        .options(
+            selectinload(Post.owner),
+            selectinload(Post.images),
+            selectinload(Post.likes),
+        )
+        .join(User, User.id == Post.user_id)
+        .where(
+            (Post.id == post_id)
+            & (
+                (Post.user_id == viewer_id)
+                | (User.is_private == False)
+                | exists().where(
+                    (Follow.follower_id == viewer_id)
+                    & (Follow.following_id == Post.user_id)
+                    & (Follow.status == FollowStatus.ACCEPTED)
+                )
+            )
+        )
+    )
+
+    result = await db.execute(stmt)
+
+    post = result.scalar_one_or_none()
+
+    # if not post:
+    #     # raise Exception("Post not found or inaccessible")
+    #     return None
+    return post
+
+
+async def get_post(db: AsyncSession, post_id: int, user_id: int) -> PostResponse | None:
+    """
+    Retrieve a single post accessible to the requesting user.
+
+    This function fetches the target post while enforcing
+    post visibility and privacy rules.
+
+    Args:
+        db (AsyncSession):
+            Asynchronous database session.
+
+        post_id (int):
+            ID of the target post.
+
+        user_id (int):
+            ID of the requesting user.
+
+    Returns:
+        PostResponse:
+            Serialized post response.
+    """
+    post = await get_accessible_post(db, post_id, user_id)
     if not post:
-        return None
-
+        raise Exception("Post not found or inaccessible")
     likes_count = len(post.likes)
 
     is_liked = any(like.user_id == user_id for like in post.likes)
