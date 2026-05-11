@@ -1,8 +1,7 @@
-from operator import and_, or_
 from src.database.models.follow import Follow
 from src.database.models.user import User
 from src.utils.enum import FollowStatus
-from sqlalchemy import select, func
+from sqlalchemy import select, func, exists, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.database.models.like import Like
@@ -12,7 +11,6 @@ from src.schemas.post import PostCreate, PostResponse
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
 from src.repositories.post_image_repo import add_post_images, delete_post_images
-from sqlalchemy import select, func, exists
 
 
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
@@ -81,62 +79,47 @@ async def get_posts(
         list[PostResponse]: List of accessible posts.
     """
 
-    post_access_filter = (
-        (User.is_private.is_(False))
-        | (Post.user_id == user_id)
-        | (
-            (User.is_private.is_(True))
-            & exists().where(
-            Follow.following_id == Post.user_id,
-            Follow.follower_id == user_id,
-            Follow.status == FollowStatus.ACCEPTED,
-        )
-        )
+    is_accepted_follower = exists().where(
+        Follow.follower_id == user_id,
+        Follow.following_id == Post.user_id,
+        Follow.status == FollowStatus.ACCEPTED,
     )
 
-    likes_subquery = (
-        select(
-            Like.post_id,
-            func.count(Like.id).label("likes_count"),
-        )
-        .group_by(Like.post_id)
-        .subquery()
+    post_access_filter = or_(
+        User.is_private.is_(False),
+        Post.user_id == user_id,
+        is_accepted_follower,
+    )
+
+    likes_count_expr = (
+        select(func.count(Like.id))
+        .where(Like.post_id == Post.id)
+        .correlate(Post)
+        .scalar_subquery()
+        .label("likes_count")
+    )
+
+    is_liked_expr = (
+        exists()
+        .where(Like.post_id == Post.id, Like.user_id == user_id)
+        .label("is_liked")
     )
 
     stmt = (
-        select(
-            Post,
-            func.coalesce(
-                likes_subquery.c.likes_count,
-                0,
-            ).label("likes_count"),
-            exists()
-            .where(
-                Like.post_id == Post.id,
-                Like.user_id == user_id,
-            )
-            .label("is_liked"),
-        )
-        .join(
-            User,
-            User.id == Post.user_id,
-        )
-        .outerjoin(
-            likes_subquery,
-            Post.id == likes_subquery.c.post_id,
-        )
+        select(Post, likes_count_expr, is_liked_expr)
+        .join(User, User.id == Post.user_id)
         .where(post_access_filter)
         .options(
             selectinload(Post.owner),
             selectinload(Post.images),
         )
         .order_by(Post.created_at.desc())
-        .limit(limit)
-        .offset(skip)
     )
 
     if search:
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
+
+    stmt = stmt.limit(limit).offset(skip)
 
     result = await db.execute(stmt)
 
