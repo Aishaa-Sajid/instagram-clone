@@ -1,3 +1,6 @@
+from src.utils.enum import FollowStatus
+
+
 MAX_IMAGES = 10
 
 ALLOWED_CONTENT_TYPES = {
@@ -9,3 +12,12 @@ ALLOWED_CONTENT_TYPES = {
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+FOLLOW_TRANSITIONS = {
+    FollowStatus.PENDING: {
+        FollowStatus.ACCEPTED,
+        FollowStatus.REJECTED,
+    },
+    FollowStatus.ACCEPTED: set(),
+    FollowStatus.REJECTED: set(),
+}
