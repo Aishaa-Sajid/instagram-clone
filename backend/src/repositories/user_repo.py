@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import delete, select, update, func, or_
+from sqlalchemy import select, update, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
 from src.utils.password_verification import hash

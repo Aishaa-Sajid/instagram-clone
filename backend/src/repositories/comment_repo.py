@@ -1,18 +1,14 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from collections.abc import Sequence
+from sqlalchemy.orm import selectinload
 from src.database.models.comment import Comment
 from src.schemas.comment import CommentCreate, CommentUpdate
 
 
 async def create_comment(
-    db: AsyncSession,
-    *,
-    user_id: int,
-    post_id: int,
-    data: CommentCreate
+    db: AsyncSession, *, user_id: int, post_id: int, data: CommentCreate
 ) -> Comment:
-    
     """
     Create a new comment for a specific post.
 
@@ -37,16 +33,12 @@ async def create_comment(
 
     db.add(comment)
     await db.commit()
-    await db.refresh(comment)
+    await db.refresh(comment, attribute_names=["user"])
 
     return comment
 
 
-async def get_comment_by_id(
-    db: AsyncSession,
-    comment_id: int
-) -> Comment | None:
-    
+async def get_comment_by_id(db: AsyncSession, comment_id: int) -> Comment | None:
     """
     Retrieve a comment by its unique ID, including related user and post data.
 
@@ -64,19 +56,15 @@ async def get_comment_by_id(
     """
     result = await db.execute(
         select(Comment)
+        .options(selectinload(Comment.user))
         .where(Comment.id == comment_id)
     )
     return result.scalar_one_or_none()
 
 
 async def get_comments_by_post(
-    db: AsyncSession,
-    *,
-    post_id: int,
-    limit: int,
-    skip: int
+    db: AsyncSession, *, post_id: int, limit: int, skip: int
 ) -> Sequence[Comment]:
-    
     """
     Retrieve paginated comments for a specific post, including user data.
 
@@ -97,6 +85,7 @@ async def get_comments_by_post(
     """
     result = await db.execute(
         select(Comment)
+        .options(selectinload(Comment.user))
         .where(Comment.post_id == post_id)
         .order_by(Comment.created_at.desc())
         .limit(limit)
@@ -106,13 +95,8 @@ async def get_comments_by_post(
 
 
 async def get_comments_by_user(
-    db: AsyncSession,
-    *,
-    user_id: int,
-    limit: int,
-    skip: int
+    db: AsyncSession, *, user_id: int, limit: int, skip: int
 ) -> Sequence[Comment]:
-    
     """
     Retrieve paginated comments made by a specific user, including post data.
 
@@ -133,6 +117,7 @@ async def get_comments_by_user(
     """
     result = await db.execute(
         select(Comment)
+        .options(selectinload(Comment.user))
         .where(Comment.user_id == user_id)
         .order_by(Comment.created_at.desc())
         .limit(limit)
@@ -142,12 +127,8 @@ async def get_comments_by_user(
 
 
 async def update_comment(
-    db: AsyncSession,
-    *,
-    comment: Comment,
-    data: CommentUpdate
+    db: AsyncSession, *, comment: Comment, data: CommentUpdate
 ) -> Comment:
-    
     """
     Update an existing comment's fields.
 
@@ -168,17 +149,12 @@ async def update_comment(
         comment.content = data.content
 
     await db.commit()
-    await db.refresh(comment)
+    await db.refresh(comment, attribute_names=["user"])
 
     return comment
 
 
-async def delete_comment(
-    db: AsyncSession,
-    *,
-    comment: Comment
-) -> None:
-    
+async def delete_comment(db: AsyncSession, *, comment: Comment) -> None:
     """
     Delete an existing comment from the database.
 

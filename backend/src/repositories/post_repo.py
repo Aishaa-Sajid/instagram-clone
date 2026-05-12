@@ -1,8 +1,6 @@
-from operator import and_, or_
 from src.database.models.follow import Follow
 from src.database.models.user import User
 from src.utils.enum import FollowStatus
-from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.database.models.like import Like
@@ -12,7 +10,7 @@ from src.schemas.post import PostCreate, PostResponse
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
 from src.repositories.post_image_repo import add_post_images, delete_post_images
-from sqlalchemy import select, func, exists
+from sqlalchemy import select, func, exists, or_
 
 
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
@@ -80,18 +78,13 @@ async def get_posts(
     Returns:
         list[PostResponse]: List of accessible posts.
     """
-
+    is_accepted_follower = exists().where(
+        Follow.following_id == Post.user_id,
+        Follow.follower_id == user_id,
+        Follow.status == FollowStatus.ACCEPTED,
+    )
     post_access_filter = (
-        (User.is_private.is_(False))
-        | (Post.user_id == user_id)
-        | (
-            (User.is_private.is_(True))
-            & exists().where(
-            Follow.following_id == Post.user_id,
-            Follow.follower_id == user_id,
-            Follow.status == FollowStatus.ACCEPTED,
-        )
-        )
+        (User.is_private.is_(False)) | (Post.user_id == user_id) | is_accepted_follower
     )
 
     likes_subquery = (
@@ -103,6 +96,15 @@ async def get_posts(
         .subquery()
     )
 
+    is_liked_expr = (
+        exists()
+        .where(
+            Like.post_id == Post.id,
+            Like.user_id == user_id,
+        )
+        .label("is_liked")
+    )
+    
     stmt = (
         select(
             Post,
@@ -110,12 +112,7 @@ async def get_posts(
                 likes_subquery.c.likes_count,
                 0,
             ).label("likes_count"),
-            exists()
-            .where(
-                Like.post_id == Post.id,
-                Like.user_id == user_id,
-            )
-            .label("is_liked"),
+            is_liked_expr,
         )
         .join(
             User,
@@ -238,7 +235,11 @@ async def get_accessible_post(
         Post:
             The requested post if access is allowed.
     """
-
+    is_accepted_follower = exists().where(
+        Follow.follower_id == viewer_id,
+        Follow.following_id == Post.user_id,
+        Follow.status == FollowStatus.ACCEPTED,
+    )
     stmt = (
         select(Post)
         .options(
@@ -252,11 +253,7 @@ async def get_accessible_post(
             & (
                 (Post.user_id == viewer_id)
                 | (User.is_private == False)
-                | exists().where(
-                    (Follow.follower_id == viewer_id)
-                    & (Follow.following_id == Post.user_id)
-                    & (Follow.status == FollowStatus.ACCEPTED)
-                )
+                | is_accepted_follower
             )
         )
     )
