@@ -6,6 +6,8 @@ import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm'
 import { VerifyEmailForm } from '@/components/auth/VerifyEmailForm'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { Feed } from '@/components/feed/Feed'
+import { PostDetail } from '@/components/feed/PostDetail'
+import { Profile } from '@/components/profile/Profile'
 
 export default function App() {
   return (
@@ -21,6 +23,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Feed />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/posts/:id"
+          element={
+            <ProtectedRoute>
+              <PostDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/users/:id"
+          element={
+            <ProtectedRoute>
+              <Profile />
             </ProtectedRoute>
           }
         />

@@ -1,5 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toggleLike } from '@/api/likes'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { EditPostForm } from './EditPostForm'
 
 function formatRelative(iso) {
   if (!iso) return ''
@@ -12,20 +15,61 @@ function formatRelative(iso) {
   return date.toLocaleDateString()
 }
 
-export function PostCard({ post }) {
+export function PostCard({ post: postProp, onUpdated }) {
+  const [post, setPost] = useState(postProp)
   const images = post.images ?? []
   const [index, setIndex] = useState(0)
   const [liked, setLiked] = useState(Boolean(post.is_liked))
   const [likesCount, setLikesCount] = useState(post.likes_count ?? 0)
   const [likePending, setLikePending] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const menuRef = useRef(null)
+  const navigate = useNavigate()
+  const { user: currentUser } = useCurrentUser()
+
+  useEffect(() => {
+    setPost(postProp)
+  }, [postProp])
+
+  useEffect(() => {
+    if (index > Math.max(0, images.length - 1)) {
+      setIndex(Math.max(0, images.length - 1))
+    }
+  }, [images.length, index])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDocClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [menuOpen])
 
   const owner = post.owner ?? {}
   const username = owner.username ?? 'unknown'
   const avatarLetter = username.charAt(0).toUpperCase()
+  const isOwner = currentUser?.id != null && owner?.id != null && currentUser.id === owner.id
+
+  const openDetail = () => navigate(`/posts/${post.id}`, { state: { post } })
+  const openComments = () =>
+    navigate(`/posts/${post.id}#comments`, { state: { post } })
+  const openOwnerProfile = () => {
+    if (owner?.id != null) navigate(`/users/${owner.id}`)
+  }
 
   const next = () => setIndex((i) => Math.min(i + 1, images.length - 1))
   const prev = () => setIndex((i) => Math.max(i - 1, 0))
+
+  const handleUpdated = (updated) => {
+    setPost(updated)
+    setLiked(Boolean(updated.is_liked))
+    setLikesCount(updated.likes_count ?? 0)
+    setEditing(false)
+    onUpdated?.(updated)
+  }
 
   const handleToggleLike = async () => {
     if (likePending) return
@@ -46,22 +90,79 @@ export function PostCard({ post }) {
     }
   }
 
+  if (editing) {
+    return (
+      <div className="mb-3 mb-sm-4">
+        <EditPostForm
+          post={post}
+          onCancel={() => setEditing(false)}
+          onUpdated={handleUpdated}
+        />
+      </div>
+    )
+  }
+
   return (
     <article className="bg-white mb-3 mb-sm-4 overflow-hidden post-card">
       <header className="d-flex align-items-center gap-2 px-3 py-2">
-        <div className="avatar-ring">
-          <div className="avatar-inner">{avatarLetter}</div>
-        </div>
-        <div className="flex-grow-1">
+        <button
+          type="button"
+          onClick={openOwnerProfile}
+          aria-label={`View ${username}'s profile`}
+          className="btn btn-link p-0 border-0 d-flex align-items-center gap-2 text-decoration-none text-dark"
+        >
+          <div className="avatar-ring">
+            {owner.profile_picture ? (
+              <img
+                src={owner.profile_picture}
+                alt={username}
+                className="avatar-inner"
+                style={{ objectFit: 'cover' }}
+              />
+            ) : (
+              <div className="avatar-inner">{avatarLetter}</div>
+            )}
+          </div>
           <div className="fw-semibold small">{username}</div>
-        </div>
-        <button className="icon-btn" aria-label="More options">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="5" cy="12" r="2" />
-            <circle cx="12" cy="12" r="2" />
-            <circle cx="19" cy="12" r="2" />
-          </svg>
         </button>
+        <div className="flex-grow-1" />
+        {isOwner && (
+          <div className="position-relative" ref={menuRef}>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="More options"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="19" cy="12" r="2" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="position-absolute end-0 mt-1 bg-white shadow-sm rounded border"
+                style={{ minWidth: 140, zIndex: 10 }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="btn btn-link text-dark text-decoration-none w-100 text-start px-3 py-2 small"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setEditing(true)
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="post-media position-relative bg-black">
@@ -79,6 +180,8 @@ export function PostCard({ post }) {
                     className="post-image"
                     loading={i === 0 ? 'eager' : 'lazy'}
                     draggable={false}
+                    onClick={openDetail}
+                    style={{ cursor: 'pointer' }}
                   />
                 </div>
               ))}
@@ -151,6 +254,7 @@ export function PostCard({ post }) {
         </button>
         <button
           type="button"
+          onClick={openComments}
           aria-label="Comment"
           className="btn btn-link p-0 text-dark post-action-btn"
         >
@@ -195,7 +299,13 @@ export function PostCard({ post }) {
         )}
         {post.caption && (
           <p className="mb-1 small">
-            <span className="fw-semibold me-2">{username}</span>
+            <button
+              type="button"
+              onClick={openOwnerProfile}
+              className="btn btn-link p-0 align-baseline text-decoration-none text-dark fw-semibold me-2"
+            >
+              {username}
+            </button>
             {post.caption}
           </p>
         )}

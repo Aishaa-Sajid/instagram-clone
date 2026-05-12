@@ -38,6 +38,11 @@ export async function resetPassword({ token, password, passwordConfirmation }) {
   return data
 }
 
+export async function getCurrentUser() {
+  const { data } = await client.get('/users/me')
+  return data
+}
+
 export function logout() {
   localStorage.removeItem('access_token')
   localStorage.removeItem('token_type')
