@@ -1,16 +1,55 @@
 from datetime import datetime, timezone
+from src.database.models.follow import Follow
+from src.utils.enum import FollowStatus
 from sqlalchemy import select, update, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
-from src.utils.password_verification import hash
-from src.schemas.user import UserCreate, UserOut
+from src.utils.password_verification import hash, verify
+from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut
 from src.database.models.user import User
 import secrets
 from src.services.email_service import send_verification_email
 from loguru import logger
 
 
-async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
+async def get_follow_stats(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    current_user_id: int | None,
+):
+    followers_count = await db.scalar(
+        select(func.count(Follow.id)).where(
+            Follow.following_id == user_id, Follow.status == FollowStatus.ACCEPTED
+        )
+    )
+
+    following_count = await db.scalar(
+        select(func.count(Follow.id)).where(
+            Follow.follower_id == user_id, Follow.status == FollowStatus.ACCEPTED
+        )
+    )
+
+    follow_status = None
+
+    if current_user_id:
+        follow_status = await db.scalar(
+            select(Follow.status).where(
+                Follow.follower_id == current_user_id,
+                Follow.following_id == user_id,
+            )
+        )
+
+    return (
+        followers_count or 0,
+        following_count or 0,
+        follow_status,
+    )
+
+
+async def get_user_by_id(
+    db: AsyncSession, user_id: int, current_user_id: int | None = None
+) -> User | None:
     """
     Fetch a user by ID.
 
@@ -26,7 +65,19 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
         select(User).where(User.id == user_id, User.deleted_at.is_(None))
     )
 
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+    if not user:
+        return None
+    followers_count, following_count, follow_status = await get_follow_stats(
+        db=db,
+        user_id=user_id,
+        current_user_id=current_user_id,
+    )
+
+    user.followers_count = followers_count
+    user.following_count = following_count
+    user.follow_status = follow_status
+    return user
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -214,8 +265,7 @@ async def search_users(
                 User.deleted_at.is_(None),
                 or_(
                     User.username.ilike(f"{query}%"),
-                    func.similarity(User.username, query)
-                    > similarity_threshold, 
+                    func.similarity(User.username, query) > similarity_threshold,
                 ),
             )
             .order_by(func.similarity(User.username, query).desc())
@@ -229,3 +279,42 @@ async def search_users(
     except Exception as e:
         logger.error(f"Error in search_users: {e}")
         raise Exception("Failed to search users")
+
+
+async def update_password(
+    db: AsyncSession,
+    *,
+    user: User,
+    payload: UpdatePasswordSchema,
+):
+    """
+    Update the password for an existing user after validating the current password.
+
+    This function performs two main validations before updating the password:
+    1. Ensures that the provided current password matches the user's existing password.
+    2. Ensures that the new password is not the same as the current password.
+
+    If both validations pass, the user's password is hashed and updated in the database.
+
+    Args:
+        db (AsyncSession): The SQLAlchemy asynchronous database session.
+        user (User): The user object whose password is being updated.
+        payload (UpdatePasswordSchema): Schema containing current_password and new_password.
+
+    Raises:
+        Exception: If the current password is incorrect.
+        Exception: If the new password is the same as the existing password.
+
+    """
+
+    if not verify(payload.current_password, user.password):
+        raise Exception("Current password is incorrect")
+
+    if verify(payload.new_password, user.password):
+        raise Exception("New password cannot be same as old password")
+
+    user.password = hash(payload.new_password)
+
+    await db.commit()
+
+    return {"message": "Password updated successfully"}

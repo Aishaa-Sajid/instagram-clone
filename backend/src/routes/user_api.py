@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.dependencies.database import get_pg_db
 from src.repositories import user_repo
-from src.schemas.user import UserCreate, UserOut
+from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut, UserProfileOut
 from src.services.cloudinary.cloudinary_service import upload_image
 from src.dependencies.auth import get_current_user
 from typing_extensions import Annotated
@@ -31,9 +31,10 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_pg_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get('/me', response_model=UserOut)
+
+@router.get("/me", response_model=UserOut)
 async def get_current_user_profile(
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """
     Retrieve the profile of the currently authenticated user.
@@ -46,8 +47,13 @@ async def get_current_user_profile(
     """
     return current_user
 
-@router.get("/{id}", response_model=UserOut)
-async def get_user(id: int, db: AsyncSession = Depends(get_pg_db)):
+
+@router.get("/{id}", response_model=UserProfileOut)
+async def get_user(
+    id: int,
+    db: AsyncSession = Depends(get_pg_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Retrieve a user by their unique ID.
 
@@ -64,7 +70,7 @@ async def get_user(id: int, db: AsyncSession = Depends(get_pg_db)):
     Raises:
         HTTPException: 404 error if the user is not found.
     """
-    user = await user_repo.get_user_by_id(db, id)
+    user = await user_repo.get_user_by_id(db=db, user_id=id, current_user_id=current_user.id)
 
     if not user:
         raise HTTPException(
@@ -73,6 +79,7 @@ async def get_user(id: int, db: AsyncSession = Depends(get_pg_db)):
         )
 
     return user
+
 
 @router.put("/update-profile", response_model=UserOut)
 async def update_user(
@@ -140,3 +147,16 @@ async def delete_user(user_id: int, db: AsyncSession = Depends(get_pg_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"message": f"User {user_id} deleted successfully"}
+
+@router.put("/update-password")
+async def update_password(
+    payload: UpdatePasswordSchema,
+    db: AsyncSession = Depends(get_pg_db),
+    current_user: User = Depends(get_current_user),
+):
+
+    return await user_repo.update_password(
+        db=db,
+        user=current_user,
+        payload=payload,
+    )

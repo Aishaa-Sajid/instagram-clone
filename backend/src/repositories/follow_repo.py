@@ -1,5 +1,5 @@
 from src.utils.constants import FOLLOW_TRANSITIONS
-from sqlalchemy import select
+from sqlalchemy import select, func
 from fastapi import HTTPException, logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.follow import Follow
@@ -151,7 +151,7 @@ async def get_followers(db: AsyncSession, current_user: User):
 async def update_follow_status(
     db: AsyncSession,
     current_user: User,
-    target_user_id: int,
+    follow_id: int,
     new_status: FollowStatus,
 ):
     """
@@ -167,7 +167,7 @@ async def update_follow_status(
     Args:
         db (AsyncSession): Database session.
         current_user (User): User performing the action.
-        target_user_id (int): User who sent the follow request.
+        follow_id (int): ID of the follow relationship to update.
         new_status (FollowStatus): Desired new status.
 
     Returns:
@@ -176,8 +176,7 @@ async def update_follow_status(
 
     result = await db.execute(
         select(Follow).where(
-            Follow.follower_id == target_user_id,
-            Follow.following_id == current_user.id,
+            Follow.id == follow_id,
         )
     )
 
@@ -186,6 +185,8 @@ async def update_follow_status(
     if not follow:
         raise Exception("Follow request not found")
 
+    if follow.following_id != current_user.id:
+        raise Exception("You are not allowed to update this follow request")
     if follow.status == new_status:
         return follow
 

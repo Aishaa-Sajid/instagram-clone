@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
+from src.schemas.user import UserPreview
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.dependencies.database import get_pg_db
 from src.dependencies.auth import get_current_user
 from src.database.models import User
 from src.repositories import like_repo, post_repo
-from src.schemas.like import LikeResponse
+from src.schemas.like import LikeOut, LikeResponse
 
 router = APIRouter(tags=["Likes"])
 
@@ -45,3 +46,26 @@ async def toggle_like(
         raise HTTPException(
             status_code=500, detail="Failed to toggle like on post"
         ) from e
+
+
+@router.get("/{post_id}/likes", response_model=list[LikeOut])
+async def get_likes_by_post(
+    post_id: int,
+    limit: int = 10,
+    skip: int = 0,
+    db: AsyncSession = Depends(get_pg_db),
+    _: User = Depends(get_current_user),
+):
+    post = await post_repo.get_post_by_id(db, post_id)
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    likes = await like_repo.get_post_liked_users(
+        db=db,
+        post_id=post_id,
+        limit=limit,
+        skip=skip,
+    )
+
+    return likes

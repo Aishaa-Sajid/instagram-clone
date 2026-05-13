@@ -2,7 +2,6 @@ import asyncio
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Annotated
-
 from src.dependencies.database import get_pg_db
 from src.dependencies.auth import get_current_user
 from src.database.models import User
@@ -54,7 +53,7 @@ async def create_story(
 @router.get("/", response_model=list[StoryResponse])
 async def get_stories(
     db: AsyncSession = Depends(get_pg_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     skip: int = 0,
     limit: int = 10,
 ):
@@ -79,6 +78,7 @@ async def get_stories(
             db=db,
             skip=skip,
             limit=limit,
+            viewer_id=current_user.id
         )
         return stories
 
