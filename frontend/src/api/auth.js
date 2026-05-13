@@ -5,6 +5,9 @@ export async function login({ email, password }) {
   if (data?.access_token) {
     localStorage.setItem('access_token', data.access_token)
     localStorage.setItem('token_type', data.token_type)
+    if (data.refresh_token) {
+      localStorage.setItem('refresh_token', data.refresh_token)
+    }
   }
   return data
 }
@@ -45,6 +48,7 @@ export async function getCurrentUser() {
 
 export function logout() {
   localStorage.removeItem('access_token')
+  localStorage.removeItem('refresh_token')
   localStorage.removeItem('token_type')
 }
 
