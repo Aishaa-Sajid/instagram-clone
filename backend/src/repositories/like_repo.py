@@ -1,6 +1,8 @@
+from src.database.models.user import User
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.like import Like
+from sqlalchemy.orm import selectinload
 
 
 async def toggle_like(db: AsyncSession, user_id: int, post_id: int) -> bool:
@@ -58,3 +60,27 @@ async def get_like_count(db: AsyncSession, post_id: int) -> int:
 
     except Exception as e:
         raise Exception("Failed to fetch like count") from e
+
+
+async def get_post_liked_users(
+    db: AsyncSession,
+    *,
+    post_id: int,
+    limit: int,
+    skip: int,
+) -> list[Like]:
+    """
+    Fetch users who liked a specific post (paginated).
+    """
+
+    stmt = (
+        select(Like)
+        .options(selectinload(Like.user))
+        .where(Like.post_id == post_id)
+        .order_by(Like.created_at.desc())
+        .limit(limit)
+        .offset(skip)
+    )
+    
+    result = await db.execute(stmt)
+    return result.scalars().all()

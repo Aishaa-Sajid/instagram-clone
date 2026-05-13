@@ -44,7 +44,7 @@ async def get_posts(
 
     """
     return await post_repo.get_posts(
-        db=db, limit=limit, skip=skip, search=search, user_id=current_user.id
+        db=db, limit=limit, skip=skip, search=search, user_id=current_user.id,only_me=False
     )
 
 
@@ -179,10 +179,13 @@ async def update_post(
         uploaded_urls = []
         if new_images:
             await validate_files(new_images)
-            uploaded_urls = await asyncio.gather(
+            uploaded_images = await asyncio.gather(
                 *[upload_image(file, folder="updated_posts") for file in new_images]
             )
-
+            uploaded_urls = [
+                PostImageCreate(image_url=img.url, public_id=img.public_id)
+                for img in uploaded_images
+            ]
         updated_post = await post_repo.update_post_repo(
             db=db,
             post=post,
@@ -200,6 +203,28 @@ async def update_post(
         raise HTTPException(
             status_code=500, detail=f"Unexpected error occurred: {str(e)}"
         )
+
+@router.get("/me/posts", response_model=list[PostResponse])
+async def get_user_posts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_pg_db),
+    limit: int = 10,
+    skip: int = 0,
+    search: str | None = Query(default=None),
+):
+    """
+    Get all posts by the current user.
+
+    This endpoint returns a list of all posts created by the authenticated user.
+
+    Args:
+        current_user (User): The currently authenticated user.
+        db (AsyncSession): The asynchronous database session.
+
+    Returns:
+        list[PostResponse]: A list of posts created by the user.
+    """
+    return await post_repo.get_posts(db=db,limit=limit, skip=skip, search=search, user_id=current_user.id, only_me=True)
 
 
 @router.delete("/{id}", status_code=204)

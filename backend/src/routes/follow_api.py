@@ -97,7 +97,7 @@ async def get_followers(
 
 @router.patch("/{user_id}", response_model=FollowOut)
 async def update_follow_status(
-    target_user_id: int,
+    follow_id: int,
     payload: FollowStatusUpdate,
     db: AsyncSession = Depends(get_pg_db),
     current_user: User = Depends(get_current_user),
@@ -109,7 +109,7 @@ async def update_follow_status(
     for a specific target user.
 
     Args:
-        target_user_id (int): ID of the user whose follow request is being updated.
+        follow_id (int): ID of the follow relationship to update.
         payload (FollowStatusUpdate): New status for the follow request.
         db (AsyncSession): Database session dependency.
         current_user (User): The authenticated user performing the action.
@@ -120,6 +120,6 @@ async def update_follow_status(
     return await follow_repo.update_follow_status(
         db=db,
         current_user=current_user,
-        target_user_id=target_user_id,
+        follow_id=follow_id,
         new_status=payload.status,
     )
