@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { toggleLike } from '@/api/likes'
+import { fetchPostLikes, toggleLike } from '@/api/likes'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { EditPostForm } from './EditPostForm'
+import { LikesModal } from './LikesModal'
 
 function formatRelative(iso) {
   if (!iso) return ''
@@ -15,7 +16,7 @@ function formatRelative(iso) {
   return date.toLocaleDateString()
 }
 
-export function PostCard({ post: postProp, onUpdated }) {
+export function PostCard({ post: postProp, onUpdated, showLikedBy = false }) {
   const [post, setPost] = useState(postProp)
   const images = post.images ?? []
   const [index, setIndex] = useState(0)
@@ -25,6 +26,8 @@ export function PostCard({ post: postProp, onUpdated }) {
   const [saved, setSaved] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [recentLiker, setRecentLiker] = useState(null)
+  const [likesModalOpen, setLikesModalOpen] = useState(false)
   const menuRef = useRef(null)
   const navigate = useNavigate()
   const { user: currentUser } = useCurrentUser()
@@ -47,6 +50,24 @@ export function PostCard({ post: postProp, onUpdated }) {
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [menuOpen])
+
+  useEffect(() => {
+    if (!showLikedBy || likesCount <= 0 || likePending) {
+      if (likesCount <= 0) setRecentLiker(null)
+      return
+    }
+    let cancelled = false
+    fetchPostLikes(post.id, { limit: 1, skip: 0 })
+      .then((rows) => {
+        if (!cancelled) setRecentLiker(rows[0]?.user ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setRecentLiker(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showLikedBy, likesCount, likePending, post.id])
 
   const owner = post.owner ?? {}
   const username = owner.username ?? 'unknown'
@@ -234,34 +255,44 @@ export function PostCard({ post: postProp, onUpdated }) {
       </div>
 
       <div className="px-3 pt-2 pb-1 d-flex align-items-center gap-3">
-        <button
-          type="button"
-          onClick={handleToggleLike}
-          disabled={likePending}
-          aria-label={liked ? 'Unlike' : 'Like'}
-          className="btn btn-link p-0 text-dark post-action-btn"
-        >
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill={liked ? '#ed4956' : 'none'}
-            stroke={liked ? '#ed4956' : 'currentColor'}
-            strokeWidth="2"
+        <div className="d-flex align-items-center gap-1">
+          <button
+            type="button"
+            onClick={handleToggleLike}
+            disabled={likePending}
+            aria-label={liked ? 'Unlike' : 'Like'}
+            className="btn btn-link p-0 text-dark post-action-btn"
           >
-            <path d="M12 21s-7.5-4.6-9.5-9.3C1.2 8.6 3 5 6.5 5 8.6 5 10.5 6.2 12 8c1.5-1.8 3.4-3 5.5-3C21 5 22.8 8.6 21.5 11.7 19.5 16.4 12 21 12 21z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={openComments}
-          aria-label="Comment"
-          className="btn btn-link p-0 text-dark post-action-btn"
-        >
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-          </svg>
-        </button>
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill={liked ? '#ed4956' : 'none'}
+              stroke={liked ? '#ed4956' : 'currentColor'}
+              strokeWidth="2"
+            >
+              <path d="M12 21s-7.5-4.6-9.5-9.3C1.2 8.6 3 5 6.5 5 8.6 5 10.5 6.2 12 8c1.5-1.8 3.4-3 5.5-3C21 5 22.8 8.6 21.5 11.7 19.5 16.4 12 21 12 21z" />
+            </svg>
+          </button>
+          {likesCount > 0 && (
+            <span className="small fw-semibold">{likesCount}</span>
+          )}
+        </div>
+        <div className="d-flex align-items-center gap-1">
+          <button
+            type="button"
+            onClick={openComments}
+            aria-label="Comment"
+            className="btn btn-link p-0 text-dark post-action-btn"
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+            </svg>
+          </button>
+          {(post.comments_count ?? 0) > 0 && (
+            <span className="small fw-semibold">{post.comments_count}</span>
+          )}
+        </div>
         <button
           type="button"
           aria-label="Share"
@@ -292,9 +323,30 @@ export function PostCard({ post: postProp, onUpdated }) {
       </div>
 
       <div className="px-3 pb-3">
-        {likesCount > 0 && (
-          <p className="mb-1 small fw-semibold">
-            {likesCount} {likesCount === 1 ? 'like' : 'likes'}
+        {showLikedBy && likesCount > 0 && recentLiker && (
+          <p className="mb-1 small">
+            <span className="text-secondary">Liked by </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (recentLiker.id != null) navigate(`/users/${recentLiker.id}`)
+              }}
+              className="btn btn-link p-0 align-baseline text-decoration-none text-dark fw-semibold"
+            >
+              {recentLiker.username}
+            </button>
+            {likesCount > 1 && (
+              <>
+                <span className="text-secondary"> and </span>
+                <button
+                  type="button"
+                  onClick={() => setLikesModalOpen(true)}
+                  className="btn btn-link p-0 align-baseline text-decoration-none text-dark fw-semibold"
+                >
+                  {likesCount - 1} {likesCount - 1 === 1 ? 'other' : 'others'}
+                </button>
+              </>
+            )}
           </p>
         )}
         {post.caption && (
@@ -313,6 +365,10 @@ export function PostCard({ post: postProp, onUpdated }) {
           {formatRelative(post.created_at)}
         </div>
       </div>
+
+      {likesModalOpen && (
+        <LikesModal postId={post.id} onClose={() => setLikesModalOpen(false)} />
+      )}
     </article>
   )
 }

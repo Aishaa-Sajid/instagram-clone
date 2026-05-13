@@ -71,7 +71,7 @@ export function PostDetail() {
 
           {post && (
             <>
-              <PostCard post={post} onUpdated={setPost} />
+              <PostCard post={post} onUpdated={setPost} showLikedBy />
               <CommentsSection ref={commentsRef} post={post} />
             </>
           )}
