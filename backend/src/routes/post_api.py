@@ -9,7 +9,7 @@ from src.repositories import post_repo
 from src.dependencies.auth import get_current_user
 from src.schemas.post import PostResponse, PostCreate
 from src.database.models import User
-from src.services.cloudinary.cloudinary_service import upload_image
+from src.services.cloudinary_service import upload_image
 from fastapi import UploadFile, File, Form
 from src.utils.file_validators import validate_files
 
@@ -23,6 +23,7 @@ async def get_posts(
     limit: int = 10,
     skip: int = 0,
     search: str | None = Query(default=None),
+    user_id: int | None = None,
 ):
     """
     Retrieve a list of posts with pagination and optional search filtering.
@@ -44,7 +45,7 @@ async def get_posts(
 
     """
     return await post_repo.get_posts(
-        db=db, limit=limit, skip=skip, search=search, user_id=current_user.id,only_me=False
+        db=db, limit=limit, skip=skip, search=search, viewer_id=current_user.id, target_user_id=user_id
     )
 
 
@@ -119,7 +120,7 @@ async def get_post(
         PostResponse: The requested post data.
     """
 
-    post = await post_repo.get_post(db=db, post_id=id, user_id=current_user.id)
+    post = await post_repo.get_post(db=db, post_id=id, current_user_id=current_user.id)
 
     if not post:
         raise HTTPException(
@@ -204,27 +205,27 @@ async def update_post(
             status_code=500, detail=f"Unexpected error occurred: {str(e)}"
         )
 
-@router.get("/me/posts", response_model=list[PostResponse])
-async def get_user_posts(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_pg_db),
-    limit: int = 10,
-    skip: int = 0,
-    search: str | None = Query(default=None),
-):
-    """
-    Get all posts by the current user.
+# @router.get("/me/posts", response_model=list[PostResponse])
+# async def get_user_posts(
+#     current_user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_pg_db),
+#     limit: int = 10,
+#     skip: int = 0,
+#     search: str | None = Query(default=None),
+# ):
+#     """
+#     Get all posts by the current user.
 
-    This endpoint returns a list of all posts created by the authenticated user.
+#     This endpoint returns a list of all posts created by the authenticated user.
 
-    Args:
-        current_user (User): The currently authenticated user.
-        db (AsyncSession): The asynchronous database session.
+#     Args:
+#         current_user (User): The currently authenticated user.
+#         db (AsyncSession): The asynchronous database session.
 
-    Returns:
-        list[PostResponse]: A list of posts created by the user.
-    """
-    return await post_repo.get_posts(db=db,limit=limit, skip=skip, search=search, user_id=current_user.id, only_me=True)
+#     Returns:
+#         list[PostResponse]: A list of posts created by the user.
+#     """
+#     return await post_repo.get_posts(db=db,limit=limit, skip=skip, search=search, user_id=current_user.id, only_me=True)
 
 
 @router.delete("/{id}", status_code=204)

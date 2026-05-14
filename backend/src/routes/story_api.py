@@ -7,7 +7,7 @@ from src.dependencies.auth import get_current_user
 from src.database.models import User
 from src.schemas.story import StoryResponse
 from src.repositories import story_repo
-from src.services.cloudinary.cloudinary_service import upload_image
+from src.services.cloudinary_service import upload_image
 from src.utils.file_validators import validate_files
 
 router = APIRouter(tags=["Stories"])

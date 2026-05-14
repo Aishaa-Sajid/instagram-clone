@@ -1,5 +1,5 @@
 import asyncio
-from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
+from src.services.cloudinary_service import delete_image_from_cloudinary
 from src.database.models.post import Post
 from src.database.models.post_image import PostImage
 from sqlalchemy.ext.asyncio import AsyncSession

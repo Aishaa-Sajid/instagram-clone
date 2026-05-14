@@ -3,7 +3,7 @@ from src.database.models.follow import Follow
 from src.utils.enum import FollowStatus
 from sqlalchemy import select, update, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
+from src.services.cloudinary_service import delete_image_from_cloudinary
 from src.utils.password_verification import hash, verify
 from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut
 from src.database.models.user import User

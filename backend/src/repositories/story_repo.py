@@ -1,6 +1,6 @@
 from src.database.models.user import User
 from src.database.models.follow import Follow
-from src.services.cloudinary.cloudinary_service import delete_image_from_cloudinary
+from src.services.cloudinary_service import delete_image_from_cloudinary
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload

@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List
-from src.schemas.user import UserOut, UserPreview
+from src.schemas.user import UserPreview
 from src.schemas.post_image import PostImageCreate, PostImageResponse
 
 
@@ -24,7 +24,7 @@ class PostResponse(PostBase):
     created_at: datetime
     updated_at: datetime
     user_id: int
-    owner: UserOut
+    owner: UserPreview
     images: List[PostImageResponse] = Field(default_factory=list)
     likes_count: int = 0
     comments_count: int = 0

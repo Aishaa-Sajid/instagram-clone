@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from src.schemas.user import UserOut
+from src.schemas.user import UserPreview
 
 class CommentCreate(BaseModel):
     content: str = Field(min_length=1, max_length=500)
@@ -15,7 +15,7 @@ class CommentResponse(BaseModel):
     content: str
     user_id: int
     post_id: int
-    user: UserOut
+    user: UserPreview
     created_at: datetime
     updated_at: datetime
 
