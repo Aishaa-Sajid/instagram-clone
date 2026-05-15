@@ -15,6 +15,7 @@ class PostgresDatabaseSettings(BaseSettings):
     SMTP_USER: str
     SMTP_PASS: str
     MAIL_FROM: str
+    BASE_URL: str
 
     CLOUDINARY_CLOUD_NAME: str
     CLOUDINARY_API_KEY: str

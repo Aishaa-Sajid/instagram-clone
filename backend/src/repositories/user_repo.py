@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from src.celery.tasks.email_tasks import send_verification_email_task
 from src.database.models.follow import Follow
 from src.utils.enum import FollowStatus
 from sqlalchemy import select, update, func, or_
@@ -8,7 +9,7 @@ from src.utils.password_verification import hash, verify
 from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut
 from src.database.models.user import User
 import secrets
-from src.services.email_service import send_verification_email
+# from src.services.email_service import send_verification_email
 from loguru import logger
 
 
@@ -127,7 +128,7 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
     await db.refresh(new_user)
 
     try:
-        await send_verification_email(new_user.email, verification_token)
+        send_verification_email_task.delay(new_user.email, verification_token)
     except Exception as e:
         logger.error(f"Email sending failed: {e}")
         raise Exception("Failed to send verification email")

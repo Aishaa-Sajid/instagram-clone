@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from loguru import logger
 from sqlalchemy import delete
 from src.database.models.story import Story
-from src.celery.app import celery_app
+from src.celery.celery_app import celery_app
 from src.database.config import sessionmanager
 from src.repositories.story_repo import delete_expired_stories
 

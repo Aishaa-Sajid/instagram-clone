@@ -11,7 +11,7 @@ from src.schemas.post import PostCreate, PostResponse
 from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
 from src.repositories.post_image_repo import add_post_images, delete_post_images
-from sqlalchemy import select, func, exists
+from sqlalchemy import select, func, exists, or_
 
 
 async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
@@ -45,6 +45,7 @@ async def get_post_by_user_id(db: AsyncSession, post_id: int) -> Post | None:
 
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
 
 def build_post_query(viewer_id: int):
     """
@@ -81,21 +82,16 @@ def build_post_query(viewer_id: int):
                 - is_liked flag
     """
 
-    # accepted follower check
     is_accepted_follower = exists().where(
         Follow.following_id == Post.user_id,
         Follow.follower_id == viewer_id,
         Follow.status == FollowStatus.ACCEPTED,
     )
 
-    # privacy access rules
-    access_filter = (
-        (User.is_private.is_(False))
-        | (Post.user_id == viewer_id)
-        | is_accepted_follower
+    access_filter = or_(
+        User.is_private.is_(False), Post.user_id == viewer_id, is_accepted_follower
     )
 
-    # likes count subquery
     likes_subquery = (
         select(
             Like.post_id,
@@ -105,7 +101,6 @@ def build_post_query(viewer_id: int):
         .subquery()
     )
 
-    # comments count subquery
     comments_subquery = (
         select(
             Comment.post_id,
@@ -115,7 +110,6 @@ def build_post_query(viewer_id: int):
         .subquery()
     )
 
-    # is liked by logged-in user
     is_liked_expr = (
         exists()
         .where(
@@ -128,25 +122,13 @@ def build_post_query(viewer_id: int):
     stmt = (
         select(
             Post,
-            func.coalesce(
-                likes_subquery.c.likes_count,
-                0,
-            ).label("likes_count"),
-            func.coalesce(
-                comments_subquery.c.comments_count,
-                0,
-            ).label("comments_count"),
+            func.coalesce(likes_subquery.c.likes_count,0,).label("likes_count"),
+            func.coalesce(comments_subquery.c.comments_count,0,).label("comments_count"),
             is_liked_expr,
         )
         .join(User, User.id == Post.user_id)
-        .outerjoin(
-            likes_subquery,
-            Post.id == likes_subquery.c.post_id,
-        )
-        .outerjoin(
-            comments_subquery,
-            Post.id == comments_subquery.c.post_id,
-        )
+        .outerjoin(likes_subquery,Post.id == likes_subquery.c.post_id,)
+        .outerjoin(comments_subquery,Post.id == comments_subquery.c.post_id,)
         .where(access_filter)
         .options(
             selectinload(Post.owner),
@@ -164,7 +146,7 @@ async def get_posts(
     skip: int,
     viewer_id: int,
     search: str | None = None,
-    target_user_id:int | None = None,
+    target_user_id: int | None = None,
 ) -> list[PostResponse]:
     """
     Retrieve posts accessible to the authenticated user.
@@ -216,11 +198,7 @@ async def get_posts(
     if search:
         stmt = stmt.where(Post.caption.ilike(f"%{search}%"))
 
-    stmt = (
-        stmt.order_by(Post.created_at.desc())
-        .limit(limit)
-        .offset(skip)
-    )
+    stmt = stmt.order_by(Post.created_at.desc()).limit(limit).offset(skip)
     result = await db.execute(stmt)
 
     rows = result.all()
@@ -291,7 +269,9 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     return result.scalar_one()
 
 
-async def get_post(db: AsyncSession, post_id: int, current_user_id: int) -> PostResponse | None:
+async def get_post(
+    db: AsyncSession, post_id: int, current_user_id: int
+) -> PostResponse | None:
     """
     Retrieve a single accessible post by ID.
 
@@ -318,10 +298,7 @@ async def get_post(db: AsyncSession, post_id: int, current_user_id: int) -> Post
         PostResponse | None:
             Serialized post response if accessible.
     """
-    stmt = (
-        build_post_query(current_user_id)
-        .where(Post.id == post_id)
-    )
+    stmt = build_post_query(current_user_id).where(Post.id == post_id)
 
     result = await db.execute(stmt)
 
