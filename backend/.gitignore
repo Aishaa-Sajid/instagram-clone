@@ -10,3 +10,8 @@ wheels/
 .venv
 
 .env
+# Celery Beat schedule
+celerybeat-schedule
+
+# Redis dump
+dump.rdb

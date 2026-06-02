@@ -7,11 +7,20 @@ from src.database.models.user import User
 from src.schemas.comment import CommentCreate, CommentUpdate, CommentResponse
 from src.repositories import comment_repo
 from src.repositories.post_repo import get_post_by_id
+from src.core.exceptions import (
+    CommentNotFoundError,
+    PostNotFoundError,
+    UnauthorizedAccessError,
+)
 
 router = APIRouter(tags=["Comments"])
 
 
-@router.post("/post/{post_id}", response_model=CommentResponse, status_code=201)
+@router.post(
+    "/post/{post_id}",
+    response_model=CommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_comment(
     post_id: int,
     data: CommentCreate,
@@ -19,41 +28,31 @@ async def create_comment(
     db: AsyncSession = Depends(get_pg_db),
 ):
     """
-    Create a new comment on a specific post.
+    Create a new comment on a post.
 
-    This endpoint verifies that the target post exists, then creates a new
-    comment associated with the authenticated user and the given post.
+    Verifies that the target post exists, then creates a comment
+    associated with the authenticated user.
 
     Args:
-        post_id (int): ID of the post where the comment will be created.
-        data (CommentCreate): Request body containing comment content.
-        current_user (User): The authenticated user making the request.
-        db (AsyncSession): Database session dependency.
+        post_id: ID of the post to comment on.
+        data: Comment creation payload.
+        current_user: Authenticated user.
+        db: Database session dependency.
 
     Returns:
-        CommentResponse: The newly created comment.
-
-    Raises:
-        HTTPException:
-            - 404 if the post does not exist
-            - 500 if an unexpected database error occurs
+        The created CommentResponse.
     """
+    post = await get_post_by_id(db, post_id)
 
-    try:
-        post = await get_post_by_id(db, post_id)
+    if not post:
+        raise PostNotFoundError("Post not found")
 
-        if not post:
-            raise HTTPException(status_code=404, detail="Post not found")
-
-        return await comment_repo.create_comment(
-            db,
-            user_id=current_user.id,
-            post_id=post_id,
-            data=data,
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create comment")
+    return await comment_repo.create_comment(
+        db,
+        user_id=current_user.id,
+        post_id=post_id,
+        data=data,
+    )
 
 
 @router.get("/post/{post_id}", response_model=list[CommentResponse])
@@ -64,34 +63,25 @@ async def get_comments_for_post(
     skip: int = 0,
 ):
     """
-    Retrieve paginated comments for a specific post.
+    Retrieve paginated comments for a post.
 
-    This endpoint fetches all comments associated with a given post ID,
-    applying pagination using limit and skip parameters. Comments are
-    returned in descending order of creation time (handled in repository).
+    Fetches comments for the given post with pagination support.
 
     Args:
-        post_id (int): ID of the post whose comments are being retrieved.
-        db (AsyncSession): Database session dependency.
-        limit (int): Maximum number of comments to return (default: 10).
-        skip (int): Number of comments to skip for pagination (default: 0).
+        post_id: ID of the post.
+        db: Database session dependency.
+        limit: Maximum number of comments to return.
+        skip: Pagination offset.
 
     Returns:
-        list[CommentResponse]: List of comments for the specified post.
-
-    Raises:
-        HTTPException:
-            - 500 if an unexpected database error occurs
+        List of CommentResponse objects.
     """
-    try:
-        return await comment_repo.get_comments_by_post(
-            db,
-            post_id=post_id,
-            limit=limit,
-            skip=skip,
-        )
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to fetch comments for post")
+    return await comment_repo.get_comments_by_post(
+        db,
+        post_id=post_id,
+        limit=limit,
+        skip=skip,
+    )
 
 
 @router.get("/{comment_id}", response_model=CommentResponse)
@@ -100,28 +90,27 @@ async def get_comment(
     db: AsyncSession = Depends(get_pg_db),
 ):
     """
-    Retrieve a single comment by its unique ID.
+    Retrieve a comment by its ID.
 
-    This endpoint fetches a comment from the database using its ID. If the
-    comment does not exist, a 404 error is returned.
+    Fetches a single comment. Raises an error if not found.
 
     Args:
-        comment_id (int): Unique identifier of the comment to retrieve.
-        db (AsyncSession): Database session dependency.
+        comment_id: ID of the comment.
+        db: Database session dependency.
 
     Returns:
-        CommentResponse: The requested comment data.
+        CommentResponse object.
+
+    Raises:
+        CommentNotFoundError: If comment does not exist.
     """
-    try:
-        comment = await comment_repo.get_comment_by_id(db, comment_id)
 
-        if not comment:
-            raise HTTPException(status_code=404, detail="Comment not found")
+    comment = await comment_repo.get_comment_by_id(db, comment_id)
 
-        return comment
+    if not comment:
+        raise CommentNotFoundError()
 
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to retrieve comment")
+    return comment
 
 
 @router.put("/{comment_id}", response_model=CommentResponse)
@@ -134,36 +123,34 @@ async def update_comment(
     """
     Update an existing comment.
 
-    This endpoint allows a user to update their own comment. It first verifies
-    that the comment exists, then checks whether the requesting user is the
-    owner of the comment. Only authorized users are allowed to update it.
+    Allows only the comment owner to update their comment.
 
     Args:
-        comment_id (int): ID of the comment to update.
-        data (CommentUpdate): Payload containing fields to update.
-        current_user (User): The authenticated user making the request.
-        db (AsyncSession): Database session dependency.
+        comment_id: ID of the comment to update.
+        data: Fields to update.
+        current_user: Authenticated user.
+        db: Database session dependency.
 
     Returns:
-        CommentResponse: The updated comment.
+        Updated CommentResponse.
+
+    Raises:
+        CommentNotFoundError: If comment does not exist.
+        UnauthorizedAccessError: If user is not the owner.
     """
-    try:
-        comment = await comment_repo.get_comment_by_id(db, comment_id)
+    comment = await comment_repo.get_comment_by_id(db, comment_id)
 
-        if not comment:
-            raise HTTPException(status_code=404, detail="Comment not found")
+    if not comment:
+        raise CommentNotFoundError()
 
-        if comment.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not allowed")
+    if comment.user_id != current_user.id:
+        raise UnauthorizedAccessError("Not allowed to update this comment")
 
-        return await comment_repo.update_comment(
-            db,
-            comment=comment,
-            data=data,
-        )
-
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to update comment")
+    return await comment_repo.update_comment(
+        db,
+        comment=comment,
+        data=data,
+    )
 
 
 @router.delete("/{comment_id}", status_code=200)
@@ -173,42 +160,37 @@ async def delete_comment(
     db: AsyncSession = Depends(get_pg_db),
 ):
     """
-    Delete a comment from the system.
+    Delete a comment.
 
-    This endpoint allows deletion of a comment if the requesting user is
-    either:
-    - The owner of the comment, or
-    - The owner of the post to which the comment belongs.
-
-    It first verifies the existence of the comment, then checks authorization
-    before performing the delete operation.
+    Allows deletion if:
+        - User is the comment owner, OR
+        - User is the owner of the post containing the comment.
 
     Args:
-        comment_id (int): ID of the comment to be deleted.
-        current_user (User): The authenticated user making the request.
-        db (AsyncSession): Database session dependency.
+        comment_id: ID of the comment.
+        current_user: Authenticated user.
+        db: Database session dependency.
 
     Returns:
         None
+
+    Raises:
+        CommentNotFoundError: If comment does not exist.
+        UnauthorizedAccessError: If user is not allowed to delete it.
     """
-    try:
-        comment = await comment_repo.get_comment_by_id(db, comment_id)
 
-        if not comment:
-            raise HTTPException(status_code=404, detail="Comment not found")
+    comment = await comment_repo.get_comment_by_id(db, comment_id)
 
-        if not (
-            comment.user_id == current_user.id
-            or comment.post.user_id == current_user.id
-        ):
-            raise HTTPException(status_code=403, detail="Not allowed")
+    if not comment:
+        raise CommentNotFoundError()
+    if not (
+        comment.user_id == current_user.id or comment.post.user_id == current_user.id
+    ):
+        raise UnauthorizedAccessError("Not allowed to delete this comment")
 
-        await comment_repo.delete_comment(db, comment=comment)
+    await comment_repo.delete_comment(db, comment=comment)
 
-        return None
-
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to delete comment")
+    return None
 
 
 @router.get("/user/{user_id}", response_model=list[CommentResponse])
@@ -219,27 +201,22 @@ async def get_comments_by_user(
     skip: int = 0,
 ):
     """
-    Retrieve paginated comments created by a specific user.
+    Retrieve comments created by a specific user.
 
-    This endpoint fetches comments authored by a given user ID and applies
-    pagination using limit and skip parameters. Comments are typically
-    ordered by creation time in descending order (handled in repository layer).
+    Returns paginated comments for a given user ID.
 
     Args:
-        user_id (int): ID of the user whose comments are being retrieved.
-        db (AsyncSession): Database session dependency.
-        limit (int): Maximum number of comments to return (default: 10).
-        skip (int): Number of comments to skip for pagination (default: 0).
+        user_id: ID of the user.
+        db: Database session dependency.
+        limit: Maximum number of comments to return.
+        skip: Pagination offset.
 
     Returns:
-        list[CommentResponse]: List of comments created by the user.
+        List of CommentResponse objects.
     """
-    try:
-        return await comment_repo.get_comments_by_user(
-            db,
-            user_id=user_id,
-            limit=limit,
-            skip=skip,
-        )
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to fetch user comments")
+    return await comment_repo.get_comments_by_user(
+        db,
+        user_id=user_id,
+        limit=limit,
+        skip=skip,
+    )

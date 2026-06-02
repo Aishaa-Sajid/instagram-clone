@@ -1,6 +1,6 @@
 import asyncio
 from typing_extensions import Annotated
-from fastapi import APIRouter, Depends, status, HTTPException, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.utils.constants import MAX_IMAGES
 from src.schemas.post_image import PostImageCreate
@@ -12,6 +12,7 @@ from src.database.models import User
 from src.services.cloudinary_service import upload_image
 from fastapi import UploadFile, File, Form
 from src.utils.file_validators import validate_files
+from src.core.exceptions import ValidationError, PostNotFoundError, PermissionDeniedError, TooManyImagesError
 
 router = APIRouter(tags=["Posts"])
 
@@ -26,26 +27,31 @@ async def get_posts(
     user_id: int | None = None,
 ):
     """
-    Retrieve a list of posts with pagination and optional search filtering.
+    Retrieve posts with pagination and optional filtering.
 
-    This endpoint returns posts for an authenticated user. Results can be
-    paginated using `limit` and `skip`, and optionally filtered using a
-    search query.
+    Returns posts visible to the authenticated user, supporting:
+        - Pagination (limit, skip)
+        - Optional caption search
+        - Optional filtering by user
 
     Args:
-        _ (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
-        limit (int, optional): Maximum number of posts to return. Defaults to 10.
-        skip (int, optional): Number of posts to skip for pagination. Defaults to 0.
-        search (str | None, optional): Optional search keyword to filter posts.
-            Defaults to None.
+        current_user: Authenticated user.
+        db: Database session dependency.
+        limit: Maximum number of posts to return.
+        skip: Number of posts to skip for pagination.
+        search: Optional search keyword for captions.
+        user_id: Optional filter for posts by a specific user.
 
     Returns:
-        list[PostResponse]: A list of posts matching the given criteria.
-
+        List of PostResponse objects.
     """
     return await post_repo.get_posts(
-        db=db, limit=limit, skip=skip, search=search, viewer_id=current_user.id, target_user_id=user_id
+        db=db,
+        limit=limit,
+        skip=skip,
+        search=search,
+        viewer_id=current_user.id,
+        target_user_id=user_id,
     )
 
 
@@ -57,45 +63,43 @@ async def create_post(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Create a new post for the authenticated user.
+    Create a new post with images.
 
-    This endpoint allows an authenticated user to create a new post.
-    The provided post data is validated and stored in the database.
+    Uploads images to Cloudinary, validates them, and creates a new post
+    associated with the authenticated user.
 
     Args:
-        caption (str): The caption for the new post.
-        files (list[UploadFile]): The list of image files to upload.
-        current_user (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
+        caption: Post caption.
+        files: List of image files (max validation handled internally).
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        PostResponse: The created post with full details
+        The created PostResponse object.
+
+    Raises:
+        ValidationError: If no images are provided or validation fails.
     """
-    try:
-        if not files:
-            raise HTTPException(
-                status_code=400, detail="At least one image is required"
-            )
+  
+    if not files:
+        raise ValidationError("At least one image is required")
 
-        await validate_files(files)
+    await validate_files(files)
 
-        upload_tasks = [upload_image(file, folder="post_images") for file in files]
-        image_urls = await asyncio.gather(*upload_tasks)
+    upload_tasks = [upload_image(file, folder="post_images") for file in files]
+    image_urls = await asyncio.gather(*upload_tasks)
 
-        post_data = PostCreate(
-            caption=caption,
-            images=[
-                PostImageCreate(image_url=img.url, public_id=img.public_id)
-                for img in image_urls
-            ],
-        )
+    post_data = PostCreate(
+        caption=caption,
+        images=[
+            PostImageCreate(image_url=img.url, public_id=img.public_id)
+            for img in image_urls
+        ],
+    )
 
-        return await post_repo.create_post(
-            db=db, post=post_data, user_id=current_user.id
-        )
-
-    except Exception:
-        raise HTTPException(status_code=500, detail="Unexpected error occurred")
+    return await post_repo.create_post(
+        db=db, post=post_data, user_id=current_user.id
+    )
 
 
 @router.get("/{id}", response_model=PostResponse)
@@ -105,29 +109,25 @@ async def get_post(
     current_user=Depends(get_current_user),
 ):
     """
-    Retrieve a single post by its ID.
+    Retrieve a single post by ID.
 
-    This endpoint fetches a specific post using its unique identifier.
-    Authentication is required to access this route. If the post does not
-    exist, a 404 error is returned.
+    Fetches a post if it is accessible to the authenticated user.
 
     Args:
-        id (int): The unique identifier of the post.
-        db (AsyncSession): The asynchronous database session.
-        _ (User): The currently authenticated user (injected via dependency).
+        id: Post ID.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        PostResponse: The requested post data.
+        PostResponse object.
+
+    Raises:
+        PostNotFoundError: If post does not exist or is inaccessible.
     """
 
-    post = await post_repo.get_post(db=db, post_id=id, current_user_id=current_user.id)
-
-    if not post:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id {id} not found"
-        )
-
-    return post
+    return await post_repo.get_post(
+        db=db, post_id=id, current_user_id=current_user.id
+    )
 
 
 @router.put("/{id}", response_model=PostResponse)
@@ -140,92 +140,66 @@ async def update_post(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Update a post including caption and images.
+    Update a post's caption and images.
 
-    This endpoint allows partial updates to a post. It supports updating
-    the caption, deleting selected images, and uploading new images. New
-    images are uploaded asynchronously before being associated with the
-    post.
+    Supports:
+        - Updating caption
+        - Deleting existing images
+        - Adding new images
 
-    The function delegates the core update logic to the repository layer
-    after preparing the uploaded image URLs and converting them into
-    PostImage objects.
+    Validates:
+        - Post ownership
+        - Maximum image limit
+        - File validity
 
     Args:
-        id (int): ID of the post to update.
-        caption (str | None): Optional updated caption for the post.
-        images_to_delete (list[int]): List of image IDs to remove from
-            the post.
-        new_images (list[UploadFile]): List of new image files to upload
-            and attach to the post.
-        current_user (User): Authenticated user performing the request.
-        db (AsyncSession): Asynchronous database session dependency.
+        id: Post ID.
+        caption: Optional updated caption.
+        images_to_delete: List of image IDs to remove.
+        new_images: New image files to upload.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        PostResponse: The updated post data after successful modification.
+        Updated PostResponse.
+
+    Raises:
+        PostNotFoundError: If post does not exist.
+        PermissionDeniedError: If user is not the owner.
+        TooManyImagesError: If image limit exceeds allowed maximum.
     """
+
     post = await post_repo.get_post_by_id(db, id)
     if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+        raise PostNotFoundError()
 
     if post.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not allowed")
+        raise PermissionDeniedError("You are not allowed to update this post")
 
-    remaining_images = [img for img in post.images if img.id not in images_to_delete]
+    remaining_images = [
+        img for img in post.images if img.id not in images_to_delete
+    ]
 
     if len(remaining_images) + len(new_images) > MAX_IMAGES:
-        raise HTTPException(status_code=400, detail="Max 10 images allowed")
+        raise TooManyImagesError(f"Cannot have more than {MAX_IMAGES} images in a post")
 
-    try:
-        uploaded_urls = []
-        if new_images:
-            await validate_files(new_images)
-            uploaded_images = await asyncio.gather(
-                *[upload_image(file, folder="updated_posts") for file in new_images]
-            )
-            uploaded_urls = [
-                PostImageCreate(image_url=img.url, public_id=img.public_id)
-                for img in uploaded_images
-            ]
-        updated_post = await post_repo.update_post_repo(
-            db=db,
-            post=post,
-            caption=caption,
-            new_images=uploaded_urls,
-            images_to_delete=images_to_delete or [],
+    uploaded_urls = []
+    if new_images:
+        await validate_files(new_images)
+        uploaded_images = await asyncio.gather(
+            *[upload_image(file, folder="updated_posts") for file in new_images]
         )
-
-        if not updated_post:
-            raise HTTPException(status_code=404, detail="Post not found")
-
-        return updated_post
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Unexpected error occurred: {str(e)}"
-        )
-
-# @router.get("/me/posts", response_model=list[PostResponse])
-# async def get_user_posts(
-#     current_user: User = Depends(get_current_user),
-#     db: AsyncSession = Depends(get_pg_db),
-#     limit: int = 10,
-#     skip: int = 0,
-#     search: str | None = Query(default=None),
-# ):
-#     """
-#     Get all posts by the current user.
-
-#     This endpoint returns a list of all posts created by the authenticated user.
-
-#     Args:
-#         current_user (User): The currently authenticated user.
-#         db (AsyncSession): The asynchronous database session.
-
-#     Returns:
-#         list[PostResponse]: A list of posts created by the user.
-#     """
-#     return await post_repo.get_posts(db=db,limit=limit, skip=skip, search=search, user_id=current_user.id, only_me=True)
+        uploaded_urls = [
+            PostImageCreate(image_url=img.url, public_id=img.public_id)
+            for img in uploaded_images
+        ]
+    return await post_repo.update_post_repo(
+        db=db,
+        post=post,
+        caption=caption,
+        new_images=uploaded_urls,
+        images_to_delete=images_to_delete or [],
+    )
 
 
 @router.delete("/{id}", status_code=204)
@@ -235,36 +209,30 @@ async def delete_post(
     db: AsyncSession = Depends(get_pg_db),
 ):
     """
-    Delete a post by its ID (owner only).
+    Delete a post by ID.
 
-    This endpoint allows an authenticated user to delete a post they own.
-    It first verifies that the post exists and then checks whether the
-    requesting user is the owner before performing the deletion.
+    Only the post owner is allowed to delete the post.
 
     Args:
-        id (int): The unique identifier of the post to delete.
-        current_user (User): The currently authenticated user (injected via dependency).
-        db (AsyncSession): The asynchronous database session.
+        id: Post ID.
+        current_user: Authenticated user.
+        db: Database session dependency.
 
     Returns:
-        bool: True if the post was successfully deleted.
+        None
+
+    Raises:
+        PostNotFoundError: If post does not exist.
+        PermissionDeniedError: If user is not the owner.
     """
-    try:
-        post = await post_repo.get_post_by_id(db, id)
+    post = await post_repo.get_post_by_id(db, id)
 
-        if not post:
-            raise HTTPException(status_code=404, detail="post not found")
+    if not post:
+        raise PostNotFoundError("Post not found")
 
-        if post.user_id != current_user.id:
-            raise HTTPException(
-                status_code=403, detail="You are not allowed to delete this post"
-            )
+    if post.user_id != current_user.id:
+        raise PermissionDeniedError("You are not allowed to delete this post")
 
-        await post_repo.delete_post(db, post)
+    await post_repo.delete_post(db, post)
 
-        return
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Unexpected error occurred: {str(e)}"
-        )
+    return

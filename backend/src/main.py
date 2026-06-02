@@ -1,19 +1,31 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.routes import auth_api, user_api, post_api, health_check_api, like_api,comment_api,story_api,search_api,follow_api
+from src.routes import (
+    auth_api,
+    user_api,
+    post_api,
+    health_check_api,
+    like_api,
+    comment_api,
+    story_api,
+    search_api,
+    follow_api,
+)
+from src.core.exceptions import AppError
+from src.core.exception_handler import global_exception_handler, app_error_handler
+from loguru import logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    print("App starting...")
+    logger.info("App starting...")
 
     yield  # app runs here
 
     # Shutdown logic
-    print("App shutting down...")
-
+    logger.info("App shutting down...")
 
 
 app = FastAPI(title="Instagram Clone", version="1.0.0", lifespan=lifespan)
@@ -35,3 +47,6 @@ app.include_router(router=comment_api.router, prefix="/comments")
 app.include_router(router=story_api.router, prefix="/stories")
 app.include_router(router=search_api.router, prefix="/search")
 app.include_router(router=follow_api.router, prefix="/follow")
+
+app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(AppError, app_error_handler)

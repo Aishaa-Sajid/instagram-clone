@@ -1,4 +1,3 @@
-from pydantic_settings import BaseSettings
 import contextlib
 from typing import Any
 from collections.abc import AsyncIterator
@@ -11,7 +10,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from loguru import logger
-
+from sqlalchemy.engine import make_url
 from src.core.settings import PostgresDatabaseSettings
 
 
@@ -104,20 +103,11 @@ class DatabaseSessionManager:
 # Initialize session manager
 # --------------------------
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
-logger.info(f"Configuring SQLAlchemy with URL: {SQLALCHEMY_DATABASE_URL}")
+safe_db_url = make_url(SQLALCHEMY_DATABASE_URL).render_as_string(
+    hide_password=True
+)
 
 sessionmanager = DatabaseSessionManager(
     SQLALCHEMY_DATABASE_URL,
     {"echo": settings.echo_sql, "pool_pre_ping": True},
-)
-
-sync_engine = create_engine(
-    SQLALCHEMY_DATABASE_URL.replace("+asyncpg", "+psycopg2"),
-    pool_pre_ping=True,
-)
-
-SessionLocal = sessionmaker(
-    bind=sync_engine,
-    autocommit=False,
-    autoflush=False,
 )

@@ -2,12 +2,17 @@ import cloudinary.uploader
 from fastapi import UploadFile
 import io
 import asyncio
-from cloudinary.uploader import destroy
 from src.schemas.post_image import PostUploadImage
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from src.database.models.post_image import PostImage
+from src.core.exceptions import ExternalServiceError
+import cloudinary
+from src.database.config import settings
 
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+    api_key=settings.CLOUDINARY_API_KEY,
+    api_secret=settings.CLOUDINARY_API_SECRET,
+    secure=True,
+)
 
 async def upload_image(file: UploadFile, folder: str = "uploads") -> PostUploadImage:
     """
@@ -21,19 +26,30 @@ async def upload_image(file: UploadFile, folder: str = "uploads") -> PostUploadI
     file_bytes = await file.read()
     file_obj = io.BytesIO(file_bytes)
 
-    result = await asyncio.to_thread(
-        cloudinary.uploader.upload, file_obj, folder=folder
-    )
+    try:
+        result = await asyncio.to_thread(
+            cloudinary.uploader.upload, file_obj, folder=folder
+        )
     
-    if not result.get("public_id"):
-        raise Exception("Cloudinary did not return public_id")
-    return PostUploadImage(url=result["secure_url"], public_id=result["public_id"])
+        if not result.get("public_id"):
+            raise ExternalServiceError(
+                "Cloudinary did not return public_id"
+            )
+        return PostUploadImage(url=result["secure_url"], public_id=result["public_id"])
 
+    except Exception:
+        raise ExternalServiceError(
+            "Image upload failed"
+        )
 
 async def delete_image_from_cloudinary(public_id: str):
 
-    result = await asyncio.to_thread(cloudinary.uploader.destroy, public_id)
-    if result.get("result") != "ok":
-        raise Exception(f"Cloudinary delete failed: {result}")
+    try:
+        result = await asyncio.to_thread(cloudinary.uploader.destroy, public_id)
+        if result.get("result") != "ok":
+            raise ExternalServiceError(f"Cloudinary delete failed: {result}")
 
-    return result
+        return result
+    
+    except Exception as e:
+        raise ExternalServiceError(f"Cloudinary delete failed: {str(e)}")

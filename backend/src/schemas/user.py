@@ -33,11 +33,13 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class UserProfileOut(UserOut):
+class UserProfileOut(BaseModel):
+    user: UserOut
     followers_count: int = 0
     following_count: int = 0
     follow_status: FollowStatus | None = None
 
+    model_config = {"from_attributes": True}
 
 class UserPreview(BaseModel):
     id: int

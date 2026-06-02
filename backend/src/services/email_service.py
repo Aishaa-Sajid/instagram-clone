@@ -1,7 +1,7 @@
 import smtplib
 from email.mime.text import MIMEText
 from src.database.config import settings
-
+from loguru import logger
 
 def send_verification_email(email: str, token: str):
     try:
@@ -26,6 +26,7 @@ def send_verification_email(email: str, token: str):
             server.login(sender, password)
             server.send_message(msg)
 
-        print("Email sent!")
+        logger.info("Verification email sent")
     except Exception as e:
+        logger.error("Failed to send verification email")
         raise Exception("Failed to send verification email") from e

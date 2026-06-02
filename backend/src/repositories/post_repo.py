@@ -12,9 +12,26 @@ from src.utils.constants import MAX_IMAGES
 from src.database.models.post import Post
 from src.repositories.post_image_repo import add_post_images, delete_post_images
 from sqlalchemy import select, func, exists, or_
+from src.core.exceptions import TooManyImagesError, PostNotFoundError
+from loguru import logger
 
+async def get_post_by_id(db: AsyncSession, post_id: int) -> Post:
+    """
+    Retrieve a post by its ID with related data.
 
-async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
+    Loads the post along with its owner, images, and likes using eager
+    loading. Raises an exception if the post does not exist.
+
+    Args:
+        db: The asynchronous SQLAlchemy database session.
+        post_id: ID of the post to retrieve.
+
+    Returns:
+        The Post ORM instance.
+
+    Raises:
+        PostNotFoundError: If the post does not exist.
+    """
     stmt = (
         select(Post)
         .options(
@@ -26,60 +43,35 @@ async def get_post_by_id(db: AsyncSession, post_id: int) -> Post | None:
     )
 
     result = await db.execute(stmt)
-    return result.scalar_one_or_none()
-
-
-async def get_post_by_user_id(db: AsyncSession, post_id: int) -> Post | None:
-    stmt = (
-        select(Post)
-        .options(
-            selectinload(Post.owner),
-            selectinload(Post.images),
-            selectinload(Post.likes),
-        )
-        .where(Post.id == post_id)
-        .joins(
-            Follow,
-        )
-    )
-
-    result = await db.execute(stmt)
-    return result.scalar_one_or_none()
+    post= result.scalar_one_or_none()
+    
+    if not post:
+        raise PostNotFoundError("Post not found")
+    
+    return post
 
 
 def build_post_query(viewer_id: int):
     """
-    Build a reusable SQLAlchemy query for retrieving posts.
+    Build a SQLAlchemy query for retrieving posts with visibility rules.
 
-    This query applies post visibility rules based on account privacy
-    and follower relationship status. It also includes additional
-    metadata required for post responses such as likes count,
-    comments count, and whether the viewer has liked the post.
-
-    Included features:
-        - Privacy access control
-        - Likes count aggregation
-        - Comments count aggregation
+    This query applies:
+        - Account privacy rules
+        - Follow-based access control
+        - Aggregated like and comment counts
         - "is_liked" flag for the viewer
-        - Owner relationship eager loading
-        - Post images eager loading
+        - Eager loading for owner and images
 
     Visibility rules:
-        - Public account posts are visible to everyone.
+        - Public posts are visible to everyone.
         - Users can always view their own posts.
-        - Private account posts are visible only to accepted followers.
+        - Private posts are visible only to accepted followers.
 
     Args:
-        viewer_id (int):
-            ID of the authenticated user requesting posts.
+        viewer_id: ID of the authenticated user requesting posts.
 
     Returns:
-        Select:
-            SQLAlchemy select statement containing:
-                - Post object
-                - likes_count
-                - comments_count
-                - is_liked flag
+        SQLAlchemy Select object for post retrieval.
     """
 
     is_accepted_follower = exists().where(
@@ -122,13 +114,25 @@ def build_post_query(viewer_id: int):
     stmt = (
         select(
             Post,
-            func.coalesce(likes_subquery.c.likes_count,0,).label("likes_count"),
-            func.coalesce(comments_subquery.c.comments_count,0,).label("comments_count"),
+            func.coalesce(
+                likes_subquery.c.likes_count,
+                0,
+            ).label("likes_count"),
+            func.coalesce(
+                comments_subquery.c.comments_count,
+                0,
+            ).label("comments_count"),
             is_liked_expr,
         )
         .join(User, User.id == Post.user_id)
-        .outerjoin(likes_subquery,Post.id == likes_subquery.c.post_id,)
-        .outerjoin(comments_subquery,Post.id == comments_subquery.c.post_id,)
+        .outerjoin(
+            likes_subquery,
+            Post.id == likes_subquery.c.post_id,
+        )
+        .outerjoin(
+            comments_subquery,
+            Post.id == comments_subquery.c.post_id,
+        )
         .where(access_filter)
         .options(
             selectinload(Post.owner),
@@ -151,43 +155,27 @@ async def get_posts(
     """
     Retrieve posts accessible to the authenticated user.
 
-    This function fetches posts while enforcing account privacy rules.
-    It supports pagination, optional caption search, and filtering
-    posts by a specific user.
+    Supports:
+        - Pagination
+        - Caption search filtering
+        - Filtering by specific user
+        - Privacy-based access control
 
-    Visibility rules:
-        - Public account posts are visible to everyone.
-        - Users can always view their own posts.
-        - Private account posts are visible only to accepted followers.
-        - Pending or rejected follow requests do not grant access.
-
-    Additional response data:
-        - Total likes count
-        - Total comments count
-        - Whether the authenticated user liked the post
+    Each post includes:
+        - Likes count
+        - Comments count
+        - Whether the viewer liked the post
 
     Args:
-        db (AsyncSession):
-            Asynchronous database session.
-
-        limit (int):
-            Maximum number of posts to return.
-
-        skip (int):
-            Number of posts to skip for pagination.
-
-        viewer_id (int):
-            ID of the authenticated user requesting posts.
-
-        search (str | None, optional):
-            Optional caption search keyword.
-
-        target_user_id (int | None, optional):
-            Filter posts belonging to a specific user.
+        db: The asynchronous database session.
+        limit: Maximum number of posts to return.
+        skip: Number of posts to skip for pagination.
+        viewer_id: ID of the authenticated user.
+        search: Optional caption search keyword.
+        target_user_id: Optional filter for a specific user.
 
     Returns:
-        list[PostResponse]:
-            List of accessible posts with aggregated metadata.
+        List of PostResponse objects.
     """
 
     stmt = build_post_query(viewer_id)
@@ -226,23 +214,24 @@ async def get_posts(
 
 async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     """
-    Create a new post along with its associated images.
+    Create a new post with associated images.
 
-    This function inserts a new post into the database for the given user,
-    attaches up to 10 images to the post, and returns the fully populated
-    post including its owner and images.
+    Inserts a post for the given user and attaches images to it.
+    Enforces maximum image limit defined by MAX_IMAGES.
 
     Args:
-        db (AsyncSession): The asynchronous database session.
-        post (PostCreate): The post data containing caption and list of images.
-        user_id (int): The ID of the user creating the post.
+        db: The asynchronous database session.
+        post: Post creation payload containing caption and images.
+        user_id: ID of the user creating the post.
 
     Returns:
-        Post: The newly created post with related images and owner loaded.
+        The created Post ORM instance with owner and images loaded.
 
+    Raises:
+        TooManyImagesError: If image count exceeds allowed limit.
     """
     if len(post.images) > MAX_IMAGES:
-        raise Exception(f"A post can have maximum {MAX_IMAGES} images")
+        raise TooManyImagesError(f"A post can have maximum {MAX_IMAGES} images")
 
     new_post = Post(caption=post.caption, user_id=user_id)
     db.add(new_post)
@@ -258,6 +247,7 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
     ]
 
     db.add_all(images)
+    
     await db.commit()
 
     result = await db.execute(
@@ -271,32 +261,25 @@ async def create_post(db: AsyncSession, post: PostCreate, user_id: int) -> Post:
 
 async def get_post(
     db: AsyncSession, post_id: int, current_user_id: int
-) -> PostResponse | None:
+) -> PostResponse:
     """
-    Retrieve a single accessible post by ID.
+    Retrieve a single post by ID with access control.
 
-    This function fetches a post while enforcing account privacy
-    and visibility rules. It also includes likes count,
-    comments count, and the "is_liked" status for the requesting user.
-
-    Visibility rules:
-        - Public account posts are visible to everyone.
-        - Users can always view their own posts.
-        - Private account posts are visible only to accepted followers.
+    Enforces privacy rules and returns post metadata including:
+        - Likes count
+        - Comments count
+        - Viewer like status
 
     Args:
-        db (AsyncSession):
-            Asynchronous database session.
-
-        post_id (int):
-            ID of the target post.
-
-        current_user_id (int):
-            ID of the authenticated user requesting the post.
+        db: The asynchronous database session.
+        post_id: ID of the post.
+        current_user_id: ID of the requesting user.
 
     Returns:
-        PostResponse | None:
-            Serialized post response if accessible.
+        PostResponse containing full post data.
+
+    Raises:
+        PostNotFoundError: If post does not exist or is inaccessible.
     """
     stmt = build_post_query(current_user_id).where(Post.id == post_id)
 
@@ -305,7 +288,7 @@ async def get_post(
     row = result.first()
 
     if not row:
-        raise Exception("Post not found or inaccessible")
+        raise PostNotFoundError("Post not found or inaccessible")
 
     post, likes_count, comments_count, is_liked = row
 
@@ -325,25 +308,27 @@ async def get_post(
 
 async def delete_post(db: AsyncSession, post: Post):
     """
-    Delete a post from the database.
+    Delete a post and its associated images from external storage.
 
-    This function removes the given post instance from the database and
-    commits the transaction. It returns an empty response with a 204
-    status code upon successful deletion.
+    Removes all post images from Cloudinary before deleting the post
+    from the database.
 
     Args:
-        db (AsyncSession): Asynchronous database session used for the
-            delete operation.
-        post (Post): The post instance to be deleted.
+        db: The asynchronous database session.
+        post: The post instance to delete.
 
     Returns:
-        Response: An empty HTTP response with status code 204 (No Content).
+        None
     """
     for img in post.images:
         if img.public_id:
-            await delete_image_from_cloudinary(img.public_id)
+            try:
+                await delete_image_from_cloudinary(img.public_id)
+            except Exception:
+                logger.exception(f"Failed to delete image from Cloudinary: {img.public_id}")
 
     await db.delete(post)
+    
     await db.commit()
 
 
@@ -355,43 +340,38 @@ async def update_post_repo(
     images_to_delete: list[int],
 ) -> Post:
     """
-    Update a post's caption and associated images.
+    Update a post's caption and images.
 
-    This function handles partial updates to a post, including caption
-    modification and image management. It supports adding new images,
-    deleting existing images by ID, and enforces a maximum limit of 10
-    images per post.
+    Supports partial updates:
+        - Updating caption
+        - Adding new images
+        - Deleting existing images
 
-    The update process includes validation for post existence, ownership
-    authorization, and image count constraints before applying changes.
+    Enforces image constraints via repository helpers.
 
     Args:
-        db (AsyncSession): Asynchronous database session used for
-            persistence operations.
-        post (Post): The post instance to be updated.
-        caption (str | None): Updated caption for the post.
-        new_images (list): List of new image URLs to add.
-        images_to_delete (list[int]): List of image IDs to remove
-            from the post.
+        db: The asynchronous database session.
+        post: The post instance to update.
+        caption: Updated caption (if any).
+        new_images: List of new images to add.
+        images_to_delete: List of image IDs to remove.
 
     Returns:
-        Post | None: The updated post instance if successful.
+        The updated Post ORM instance.
     """
-    try:
-        if images_to_delete:
-            await delete_post_images(post, images_to_delete, db)
 
-        if new_images:
-            await add_post_images(post, new_images, db)
+    if images_to_delete:
+        await delete_post_images(post, images_to_delete, db)
 
-        if caption is not None:
-            post.caption = caption
+    if new_images:
+        await add_post_images(post, new_images, db)
 
-        await db.commit()
-        await db.refresh(post)
+    if caption is not None:
+        post.caption = caption
+    
+    await db.commit()
+   
+    await db.refresh(post)
+    return post
 
-        return post
 
-    except Exception as e:
-        await db.rollback()
-        raise Exception(f"Failed to update post: {str(e)}")

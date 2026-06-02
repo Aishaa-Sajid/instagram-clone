@@ -1,5 +1,4 @@
-import asyncio
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Annotated
 from src.dependencies.database import get_pg_db
@@ -20,34 +19,32 @@ async def create_story(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Create a new story by uploading an image file.
+    Create a new story by uploading an image.
 
-    This endpoint accepts a single image file, validates it, uploads it
-    to storage, and creates a story record associated with the current user.
+    Uploads the provided image to storage and creates a story record
+    linked to the authenticated user.
 
     Args:
-        file (UploadFile): Image file to be uploaded as a story.
-        db (AsyncSession): Database session dependency.
-        current_user (User): Authenticated user creating the story.
+        file: Image file to be uploaded as a story.
+        db: Database session dependency.
+        current_user: Authenticated user creating the story.
 
     Returns:
-        StoryResponse: Created story object containing metadata and media URL.
+        StoryResponse containing story metadata and media URL.
 
+    Raises:
+        ValidationError: If file validation fails.
     """
-    try:
-        await validate_files([file])
+    await validate_files([file])
 
-        uploaded = await upload_image(file, folder="stories")
+    uploaded = await upload_image(file, folder="stories")
 
-        return await story_repo.create_story(
-            db=db,
-            user_id=current_user.id,
-            media_url=uploaded.url,
-            public_id=uploaded.public_id,
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create story: {str(e)}")
+    return await story_repo.create_story(
+        db=db,
+        user_id=current_user.id,
+        media_url=uploaded.url,
+        public_id=uploaded.public_id,
+    )
 
 
 @router.get("/", response_model=list[StoryResponse])
@@ -60,30 +57,24 @@ async def get_stories(
     """
     Retrieve active (non-expired) stories.
 
-    This endpoint returns a paginated list of all active stories that have
-    not yet expired.
+    Returns a paginated list of stories that are still active (created
+    within the last 24 hours) and accessible to the authenticated user.
 
     Args:
-        db (AsyncSession): Database session dependency.
-        current_user (User): Authenticated user requesting stories.
-        skip (int): Number of records to skip for pagination.
-        limit (int): Maximum number of stories to return.
+        db: Database session dependency.
+        current_user: Authenticated user requesting stories.
+        skip: Number of records to skip for pagination.
+        limit: Maximum number of stories to return.
 
     Returns:
-        list[StoryResponse]: List of active story objects.
+        List of StoryResponse objects.
 
+    Notes:
+        - Only active (non-expired) stories are included.
+        - Visibility depends on follow/privacy rules.
     """
-    try:
-        stories = await story_repo.get_active_stories(
-            db=db,
-            skip=skip,
-            limit=limit,
-            viewer_id=current_user.id
-        )
-        return stories
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch stories: {str(e)}"
-        )
+    stories = await story_repo.get_active_stories(
+        db=db, skip=skip, limit=limit, viewer_id=current_user.id
+    )
+    return stories

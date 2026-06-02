@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends,status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.dependencies.database import get_pg_db
 from src.repositories import user_repo
 from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut, UserProfileOut
 from src.services.cloudinary_service import upload_image
 from src.dependencies.auth import get_current_user
-from typing_extensions import Annotated
 from src.database.models import User
+from src.core.exceptions import UnauthorizedAccessError
 
 router = APIRouter(tags=["Users"])
 
@@ -14,38 +14,52 @@ router = APIRouter(tags=["Users"])
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=UserOut)
 async def create_user(user: UserCreate, db: AsyncSession = Depends(get_pg_db)):
     """
-    Create a new user in the system.
+    Create a new user.
 
-    This endpoint registers a new user by storing their details in the database.
-    The input data is validated before creation.
+    Registers a new user by validating input data and storing it in the database.
 
     Args:
-        user (UserCreate): The request body containing user registration details.
-        db (AsyncSession): The asynchronous database session.
+        user: User registration payload.
+        db: Database session dependency.
 
     Returns:
-        UserOut: The created user data.
+        UserOut representing the created user.
+
+    Raises:
+        ConflictError: If email already exists.
     """
-    try:
-        return await user_repo.create_user(db, user)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+
+    return await user_repo.create_user(db, user)
 
 
-@router.get("/me", response_model=UserOut)
+@router.get("/me", response_model=UserProfileOut)
 async def get_current_user_profile(
-    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_pg_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Retrieve the profile of the currently authenticated user.
+    Retrieve the profile of the authenticated user.
 
-    This endpoint returns the details of the user who is currently logged in.
-    It uses dependency injection to access the authenticated user's information.
+    Returns user profile data along with follower statistics.
 
     Args:
-        current_user (User): The currently authenticated user (injected via dependency).
+        db: Database session dependency.
+        current_user: Authenticated user.
+
+    Returns:
+        UserProfileOut containing:
+            - user data
+            - follower count
+            - following count
+            - follow status
     """
-    return current_user
+    followers_count,following_count,follow_status = await user_repo.get_follow_stats(db=db, user_id=current_user.id, current_user_id=current_user.id)
+    return UserProfileOut(
+        user=current_user,
+        followers_count=followers_count,
+        following_count=following_count,
+        follow_status=follow_status
+    )
 
 
 @router.get("/{id}", response_model=UserProfileOut)
@@ -55,31 +69,25 @@ async def get_user(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Retrieve a user by their unique ID.
+    Retrieve a user profile by ID.
 
-    This endpoint fetches a user from the database using the provided user ID.
-    If the user does not exist, it returns a 404 error.
+    Fetches user details along with follow statistics and visibility rules.
 
     Args:
-        id (int): The unique identifier of the user to retrieve.
-        db (AsyncSession): Database session dependency for async operations.
+        id: User ID.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        UserOut: The user data matching the provided ID.
+        UserProfileOut object.
 
     Raises:
-        HTTPException: 404 error if the user is not found.
+        UserNotFoundError: If user does not exist.
     """
-    user = await user_repo.get_user_by_id(db=db, user_id=id, current_user_id=current_user.id)
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {id} does not exist",
+    return await user_repo.get_user_profile(
+            db=db, user_id=id, current_user_id=current_user.id
         )
-
-    return user
-
 
 @router.put("/update-profile", response_model=UserOut)
 async def update_user(
@@ -90,31 +98,34 @@ async def update_user(
     current_user: User = Depends(get_current_user),
 ):
     """
-     Update user profile details (authenticated user).
+    Update authenticated user's profile.
 
-    This endpoint allows an authenticated user to update their profile
-    information, including bio, privacy setting, and profile picture.
+    Allows updating:
+        - bio
+        - privacy setting
+        - profile picture
 
-    If an image file is provided, it is uploaded and the URL is stored
-    in the user's profile.
+    Uploads image to cloud storage if provided.
 
     Args:
-        bio (str | None, optional): Updated biography text for the user.
-        is_private (bool | None, optional): Privacy setting for the user account.
-        file (UploadFile | None, optional): Profile image file to upload.
-        db (AsyncSession): The asynchronous database session.
-        current_user (User): The currently authenticated user (injected via dependency).
+        bio: Optional updated biography.
+        is_private: Optional privacy setting.
+        file: Optional profile image.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        User: The updated user object.
-    """
+        Updated User object.
 
+    Raises:
+        ExternalServiceError: If image upload fails.
+    """
     result = await upload_image(file, folder="profile_pics") if file else None
 
     image_url = result.url if result else None
     public_id = result.public_id if result else None
 
-    updated_user = await user_repo.update_user(
+    return await user_repo.update_user(
         db=db,
         user=current_user,
         bio=bio,
@@ -123,30 +134,38 @@ async def update_user(
         public_id=public_id,
     )
 
-    return updated_user
 
 
-@router.delete("/users/{user_id}")
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_pg_db)):
+
+@router.delete("/{user_id}")
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_pg_db),current_user:User=Depends(get_current_user)):
     """
-    Delete a user by their ID.
+    Soft delete a user account.
 
-    This endpoint removes a user from the database using their unique ID.
-    If no user is found, a 404 error is returned.
+    Deletes a user only if the authenticated user matches the target ID.
 
     Args:
-        user_id (int): The unique identifier of the user to delete.
-        db (AsyncSession): The asynchronous database session.
+        user_id: ID of the user to delete.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        dict: A confirmation message indicating successful deletion.
-    """
-    deleted = await user_repo.delete_user_by_id(db, user_id)
+        Success message.
 
-    if not deleted:
-        raise HTTPException(status_code=404, detail="User not found")
+    Raises:
+        UnauthorizedAccessError: If user tries to delete another account.
+        UserNotFoundError: If user does not exist.
+    """
+    if current_user.id != user_id:
+        raise UnauthorizedAccessError(
+            "You are not allowed to delete this user"
+        )
+    await user_repo.delete_user_by_id(db, user_id)
 
     return {"message": f"User {user_id} deleted successfully"}
+
+
+
 
 @router.put("/update-password")
 async def update_password(
@@ -154,9 +173,26 @@ async def update_password(
     db: AsyncSession = Depends(get_pg_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Update the authenticated user's password.
 
+    Validates current password before updating to a new password.
+
+    Args:
+        payload: Current and new password schema.
+        db: Database session dependency.
+        current_user: Authenticated user.
+
+    Returns:
+        Success message.
+
+    Raises:
+        ValidationError: If current password is incorrect or invalid.
+    """
     return await user_repo.update_password(
         db=db,
         user=current_user,
         payload=payload,
     )
+
+   

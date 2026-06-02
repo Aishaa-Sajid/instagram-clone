@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from collections.abc import Sequence
 from sqlalchemy.orm import selectinload
+from loguru import logger
 from src.database.models.comment import Comment
 from src.schemas.comment import CommentCreate, CommentUpdate
 
@@ -12,19 +13,19 @@ async def create_comment(
     """
     Create a new comment for a specific post.
 
-    This function persists a new comment in the database, linking it to
-    the given user and post. It commits the transaction and refreshes
-    the instance before returning it.
+    Persists a new comment linked to the given user and post,
+    commits the transaction, and refreshes the instance before returning.
 
     Args:
-        db (AsyncSession): The asynchronous SQLAlchemy database session.
-        user_id (int): ID of the user creating the comment.
-        post_id (int): ID of the post on which the comment is created.
-        data (CommentCreate): Pydantic schema containing comment input data.
+        db: The asynchronous SQLAlchemy database session.
+        user_id: ID of the user creating the comment.
+        post_id: ID of the post on which the comment is created.
+        data: Pydantic schema containing comment input data.
 
     Returns:
-        Comment: The newly created Comment ORM instance.
+        The newly created Comment ORM instance.
     """
+
     comment = Comment(
         content=data.content,
         user_id=user_id,
@@ -33,26 +34,25 @@ async def create_comment(
 
     db.add(comment)
     await db.commit()
+
     await db.refresh(comment, attribute_names=["user"])
 
     return comment
 
 
-async def get_comment_by_id(db: AsyncSession, comment_id: int) -> Comment | None:
+async def get_comment_by_id(db: AsyncSession, comment_id: int) -> Comment:
     """
-    Retrieve a comment by its unique ID, including related user and post data.
+    Retrieve a comment by its unique ID.
 
-    This function fetches a single Comment record from the database and
-    eagerly loads its associated user and post relationships using
-    selectinload to avoid lazy-loading during later access.
+    Fetches a comment along with its related user using eager loading
+    to avoid lazy-loading during later access.
 
     Args:
-        db (AsyncSession): The asynchronous SQLAlchemy database session.
-        comment_id (int): The unique identifier of the comment to retrieve.
+        db: The asynchronous SQLAlchemy database session.
+        comment_id: The unique identifier of the comment.
 
     Returns:
-        Comment | None: The Comment ORM instance if found, otherwise None.
-
+        The Comment ORM instance if found, otherwise None.
     """
     result = await db.execute(
         select(Comment)
@@ -66,22 +66,20 @@ async def get_comments_by_post(
     db: AsyncSession, *, post_id: int, limit: int, skip: int
 ) -> Sequence[Comment]:
     """
-    Retrieve paginated comments for a specific post, including user data.
+    Retrieve paginated comments for a specific post.
 
-    This function fetches comments belonging to a given post, applies
-    pagination using limit and offset, and eagerly loads the associated
-    user for each comment to avoid N+1 query issues.
-
-    Comments are ordered by creation time in descending order (newest first).
+    Fetches comments for a given post with pagination support and
+    eagerly loads user data to avoid N+1 queries. Results are ordered
+    by creation time in descending order.
 
     Args:
-        db (AsyncSession): The asynchronous SQLAlchemy database session.
-        post_id (int): ID of the post whose comments are being retrieved.
-        limit (int): Maximum number of comments to return.
-        skip (int): Number of comments to skip (used for pagination).
+        db: The asynchronous SQLAlchemy database session.
+        post_id: ID of the post whose comments are being retrieved.
+        limit: Maximum number of comments to return.
+        skip: Number of comments to skip for pagination.
 
     Returns:
-        Sequence[Comment]: A list of Comment ORM instances matching the query.
+        A sequence of Comment ORM instances.
     """
     result = await db.execute(
         select(Comment)
@@ -98,23 +96,22 @@ async def get_comments_by_user(
     db: AsyncSession, *, user_id: int, limit: int, skip: int
 ) -> Sequence[Comment]:
     """
-    Retrieve paginated comments made by a specific user, including post data.
+    Retrieve paginated comments made by a specific user.
 
-    This function fetches comments authored by a given user, applies
-    pagination using limit and offset, and eagerly loads the associated
-    post for each comment to avoid N+1 query issues.
-
-    Comments are ordered by creation time in descending order (newest first).
+    Fetches comments authored by a given user with pagination support
+    and eagerly loads associated post data. Results are ordered by
+    creation time in descending order.
 
     Args:
-        db (AsyncSession): The asynchronous SQLAlchemy database session.
-        user_id (int): ID of the user whose comments are being retrieved.
-        limit (int): Maximum number of comments to return.
-        skip (int): Number of comments to skip (used for pagination).
+        db: The asynchronous SQLAlchemy database session.
+        user_id: ID of the user whose comments are being retrieved.
+        limit: Maximum number of comments to return.
+        skip: Number of comments to skip for pagination.
 
     Returns:
-        Sequence[Comment]: A list of Comment ORM instances belonging to the user.
+        A sequence of Comment ORM instances.
     """
+
     result = await db.execute(
         select(Comment)
         .options(selectinload(Comment.user))
@@ -130,25 +127,25 @@ async def update_comment(
     db: AsyncSession, *, comment: Comment, data: CommentUpdate
 ) -> Comment:
     """
-    Update an existing comment's fields.
+    Update an existing comment.
 
-    This function applies partial updates to a Comment instance using the
-    provided update schema. Only fields explicitly set in the request
-    payload are updated. After applying changes, the function commits the
-    transaction and refreshes the instance before returning it.
+    Applies partial updates to a comment instance. Only explicitly
+    provided fields are updated. Commits the transaction and refreshes
+    the instance before returning.
 
     Args:
-        db (AsyncSession): The asynchronous SQLAlchemy database session.
-        comment (Comment): The existing Comment ORM instance to update.
-        data (CommentUpdate): Pydantic schema containing fields to update.
+        db: The asynchronous SQLAlchemy database session.
+        comment: The existing Comment ORM instance to update.
+        data: Pydantic schema containing fields to update.
 
     Returns:
-        Comment: The updated Comment ORM instance.
+        The updated Comment ORM instance.
     """
     if data.content is not None:
         comment.content = data.content
 
     await db.commit()
+    
     await db.refresh(comment, attribute_names=["user"])
 
     return comment
@@ -156,17 +153,19 @@ async def update_comment(
 
 async def delete_comment(db: AsyncSession, *, comment: Comment) -> None:
     """
-    Delete an existing comment from the database.
+    Delete an existing comment.
 
-    This function permanently removes the provided Comment instance from
-    the database and commits the transaction.
+    Permanently removes the provided Comment instance from the database
+    and commits the transaction.
 
     Args:
-        db (AsyncSession): The asynchronous SQLAlchemy database session.
-        comment (Comment): The Comment ORM instance to be deleted.
+        db: The asynchronous SQLAlchemy database session.
+        comment: The Comment ORM instance to be deleted.
 
     Returns:
         None
     """
     await db.delete(comment)
+
     await db.commit()
+    

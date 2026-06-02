@@ -10,17 +10,17 @@ async def delete_post_images(
     post: Post, image_ids: list[int], db: AsyncSession
 ) -> None:
     """
-     Remove specified images associated with a post.
+    Delete specified images associated with a post.
 
-    This function iterates through the images linked to the given post
-    and deletes those whose IDs match the provided list. The post's
-    image relationship is updated to retain only the remaining images.
+    Removes images from a post whose IDs match the provided list.
+    Also triggers asynchronous deletion from Cloudinary for images
+    that have a `public_id`. The post's image relationship is updated
+    to retain only the remaining images.
 
     Args:
-        post (Post): The post instance containing related images.
-        image_ids (list[int]): List of image IDs to be deleted.
-        db (AsyncSession): Asynchronous database session used to
-            perform delete operations.
+        post: The post instance containing related images.
+        image_ids: List of image IDs to be deleted.
+        db: The asynchronous database session used for persistence.
 
     Returns:
         None
@@ -39,6 +39,7 @@ async def delete_post_images(
         else:
             remaining.append(img)
 
+    results = []
     if delete_tasks:
         results = (
             await asyncio.gather(*delete_tasks, return_exceptions=True)
@@ -54,16 +55,16 @@ async def delete_post_images(
 
 
 async def add_post_images(post: Post, images: list[PostImage], db: AsyncSession):
-    """Associate new images with a post.
+    """
+    Associate new images with a post.
 
-    This function links each provided image to the given post by setting
-    the relationship on both sides. The images are then added to the
-    post's image collection.
+    Creates new PostImage records and links them to the given post.
+    Each image is persisted in the database and associated via
+    `post_id`.
 
     Args:
-        post (Post): The post instance to which the images will be added.
-        images (list[PostImage]): List of image instances to associate
-            with the post.
+        post: The post instance to which images will be added.
+        images: List of image objects containing image_url and public_id.
 
     Returns:
         None

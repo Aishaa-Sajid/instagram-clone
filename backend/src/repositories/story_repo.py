@@ -1,12 +1,13 @@
+from src.utils.enum import FollowStatus
 from src.database.models.user import User
 from src.database.models.follow import Follow
 from src.services.cloudinary_service import delete_image_from_cloudinary
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select,delete
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, timezone
-
 from src.database.models.story import Story
+from loguru import logger
 
 
 async def create_story(
@@ -17,38 +18,33 @@ async def create_story(
     public_id: str,
 ) -> Story:
     """
-     Create a new story for a user.
+    Create a new story for a user.
 
-    This function creates and stores a new story record in the database
-    using the provided media URL and user ID. Story expiration is handled
-    dynamically using the `created_at` timestamp instead of storing a
-    separate expiration field.
+    Inserts a new story record into the database using the provided
+    media URL and user ID. Story expiration is handled via the
+    `created_at` timestamp (24-hour lifecycle rule).
 
     Args:
-        db (AsyncSession): Active database session used for persistence.
-        user_id (int): ID of the user creating the story.
-        media_url (str): URL of the uploaded story media.
+        db: The asynchronous database session.
+        user_id: ID of the user creating the story.
+        media_url: URL of the uploaded story media.
+        public_id: Cloudinary public identifier for the media.
 
     Returns:
-        Story: The newly created story instance.
-
+        The newly created Story instance.
     """
-    try:
-        story = Story(
-            user_id=user_id,
-            media_url=media_url,
-            public_id=public_id,
-        )
+    story = Story(
+        user_id=user_id,
+        media_url=media_url,
+        public_id=public_id,
+    )
 
-        db.add(story)
-        await db.commit()
-        await db.refresh(story)
+    db.add(story)
+    await db.commit()
 
-        return story
+    await db.refresh(story)
 
-    except Exception as e:
-        await db.rollback()
-        raise Exception(f"Failed to create story: {str(e)}")
+    return story
 
 
 async def get_active_stories(
@@ -59,20 +55,23 @@ async def get_active_stories(
     viewer_id: int,
 ) -> list[Story]:
     """
-    Retrieve active stories with pagination.
+    Retrieve active stories visible to a user.
 
-    A story is considered active if it was created within the
-    last 24 hours. The function fetches active stories ordered
-    by newest first and applies pagination.
+    A story is considered active if it was created within the last 24 hours.
+    Visibility is controlled using privacy rules:
+        - Public users' stories are visible to everyone.
+        - Private users' stories are visible only to accepted followers.
+
+    Supports pagination and returns newest stories first.
 
     Args:
-        db (AsyncSession): Active database session used for querying.
-        skip (int): Number of records to skip for pagination.
-        limit (int): Maximum number of records to return.
-        viewer_id (int): ID of the user viewing the stories.
-    Returns:
-        list[Story]: List of active story objects with loaded owner data.
+        db: The asynchronous database session.
+        skip: Number of records to skip (pagination).
+        limit: Maximum number of records to return.
+        viewer_id: ID of the user requesting stories.
 
+    Returns:
+        List of Story ORM instances with owner relationship loaded.
     """
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=24)
@@ -80,7 +79,7 @@ async def get_active_stories(
     follow_subq = select(Follow.id).where(
         (Follow.follower_id == viewer_id)
         & (Follow.following_id == Story.user_id)
-        & (Follow.status == "accepted")
+        & (Follow.status == FollowStatus.ACCEPTED)
     )
 
     stmt = (
@@ -89,9 +88,7 @@ async def get_active_stories(
         .options(selectinload(Story.story_owner))
         .where(
             Story.created_at >= cutoff,
-            (
-                (User.is_private == False) 
-                | follow_subq.exists()),
+            ((User.is_private == False) | follow_subq.exists()),
         )
         .order_by(Story.created_at.desc())
         .offset(skip)
@@ -104,40 +101,43 @@ async def get_active_stories(
 
 async def delete_expired_stories(db: AsyncSession) -> int:
     """
-    Delete expired stories from the database.
+    Delete expired stories older than 24 hours.
 
-    A story is considered expired if it was created more than
-    24 hours ago. This function permanently removes expired
-    stories from the database.
+    Finds all stories older than 24 hours, deletes them from the
+    database, and removes associated media from Cloudinary.
 
     Args:
-        db (AsyncSession): Active database session used for deletion.
+        db: The asynchronous database session.
 
     Returns:
-        int: Number of deleted story records.
+        Number of deleted story records.
     """
-    try:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
 
-        stmt = select(Story).where(Story.created_at <= cutoff)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
 
-        result = await db.execute(stmt)
-        expired_stories = result.scalars().all()
+    stmt = select(Story.id,Story.public_id).where(Story.created_at <= cutoff)
 
-        deleted_count = 0
+    result = await db.execute(stmt)
+    expired_stories = result.all()
 
-        for story in expired_stories:
+    deleted_count = 0
+    if not expired_stories:
+        return 0
+    story_ids = [story_id for story_id, _ in expired_stories]
 
-            await delete_image_from_cloudinary(story.public_id)
+    await db.execute(
+        delete(Story).where(Story.id.in_(story_ids))
+    )
+    deleted_count = len(story_ids)
+    await db.commit()
 
-            await db.delete(story)
+    for _, public_id in expired_stories:
+        if public_id:
+            try:
+                await delete_image_from_cloudinary(public_id)
+            except Exception:
+                logger.exception(
+                    f"Failed to delete Cloudinary image: {public_id}"
+                )
 
-            deleted_count += 1
-
-        await db.commit()
-
-        return deleted_count
-
-    except Exception as e:
-        await db.rollback()
-        raise Exception(f"Failed to delete expired stories: {str(e)}")
+    return deleted_count

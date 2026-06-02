@@ -1,15 +1,20 @@
 from datetime import datetime, timezone
+from src.core.exceptions import (
+    ConflictError,
+    ExternalServiceError,
+    UserNotFoundError,
+    ValidationError,
+)
 from src.celery.tasks.email_tasks import send_verification_email_task
 from src.database.models.follow import Follow
 from src.utils.enum import FollowStatus
-from sqlalchemy import select, update, func, or_
+from sqlalchemy import select, update, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.services.cloudinary_service import delete_image_from_cloudinary
-from src.utils.password_verification import hash, verify
-from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut
+from src.utils.password_verification import hash_password, verify_password
+from src.schemas.user import UpdatePasswordSchema, UserCreate, UserOut, UserProfileOut
 from src.database.models.user import User
 import secrets
-# from src.services.email_service import send_verification_email
 from loguru import logger
 
 
@@ -19,18 +24,39 @@ async def get_follow_stats(
     user_id: int,
     current_user_id: int | None,
 ):
-    followers_count = await db.scalar(
-        select(func.count(Follow.id)).where(
-            Follow.following_id == user_id, Follow.status == FollowStatus.ACCEPTED
-        )
-    )
+    """
+    Retrieve follower statistics for a user.
 
-    following_count = await db.scalar(
-        select(func.count(Follow.id)).where(
-            Follow.follower_id == user_id, Follow.status == FollowStatus.ACCEPTED
-        )
-    )
+    Calculates:
+        - Total followers (accepted)
+        - Total following (accepted)
+        - Follow status between current user and target user (if provided)
 
+    Args:
+        db: The asynchronous SQLAlchemy database session.
+        user_id: ID of the user whose stats are being retrieved.
+        current_user_id: ID of the requesting user (optional).
+
+    Returns:
+        Tuple containing:
+            - followers_count (int)
+            - following_count (int)
+            - follow_status (FollowStatus | None)
+    """
+    stmt = select(
+        func.count().filter(
+            Follow.following_id == user_id,
+            Follow.status == FollowStatus.ACCEPTED,
+        ),
+        func.count().filter(
+            Follow.follower_id == user_id,
+            Follow.status == FollowStatus.ACCEPTED,
+        ),
+    )
+    
+    result = await db.execute(stmt)
+    followers_count, following_count = result.one()
+    
     follow_status = None
 
     if current_user_id:
@@ -52,14 +78,20 @@ async def get_user_by_id(
     db: AsyncSession, user_id: int, current_user_id: int | None = None
 ) -> User | None:
     """
-    Fetch a user by ID.
+    Retrieve a user by ID.
+
+    Only returns non-deleted users.
 
     Args:
-        db (AsyncSession): database session
-        user_id (int): user id
+        db: The asynchronous database session.
+        user_id: ID of the user to retrieve.
+        current_user_id: ID of the requesting user (optional, unused here).
 
     Returns:
-        models.User | None
+        The User ORM instance.
+
+    Raises:
+        UserNotFoundError: If the user does not exist or is deleted.
     """
 
     result = await db.execute(
@@ -68,29 +100,50 @@ async def get_user_by_id(
 
     user = result.scalar_one_or_none()
     if not user:
-        return None
-    followers_count, following_count, follow_status = await get_follow_stats(
-        db=db,
-        user_id=user_id,
-        current_user_id=current_user_id,
+        raise UserNotFoundError("User not found")
+
+    return user
+
+async def get_user_profile(db: AsyncSession, user_id: int, current_user_id: int | None = None) -> UserProfileOut:
+    """
+    Retrieve a user's profile with follow statistics.
+
+    Combines:
+        - User data
+        - Follower count
+        - Following count
+        - Follow relationship status (if viewer provided)
+
+    Args:
+        db: The asynchronous database session.
+        user_id: ID of the user whose profile is being retrieved.
+        current_user_id: ID of the requesting user (optional).
+
+    Returns:
+        UserProfileOut containing user data and follow stats.
+    """
+    user = await get_user_by_id(db, user_id, current_user_id)
+    followers_count, following_count, follow_status = await get_follow_stats(db, user_id=user_id, current_user_id=current_user_id)
+
+    return UserProfileOut(
+        user=user,
+        followers_count=followers_count,
+        following_count=following_count,
+        follow_status=follow_status,
     )
 
-    user.followers_count = followers_count
-    user.following_count = following_count
-    user.follow_status = follow_status
-    return user
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     """
-    Fetch user by email from database.
+    Retrieve a user by email.
 
     Args:
-        db (AsyncSession): database session
-        email (str): user email
+        db: The asynchronous database session.
+        email: Email address to search for.
 
     Returns:
-        User | None
+        User instance if found, otherwise None.
     """
     result = await db.execute(
         select(User).where(User.email == email, User.deleted_at.is_(None))
@@ -101,20 +154,30 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
 
 async def create_user(db: AsyncSession, user: UserCreate) -> User:
     """
-    Create a new user in the database.
+    Create a new user account.
+
+    Steps:
+        - Validate email uniqueness
+        - Hash password
+        - Generate verification token
+        - Create user record
+        - Send verification email asynchronously
 
     Args:
-        db (AsyncSession): database session
-        user (UserCreate): user input schema
+        db: The asynchronous database session.
+        user: User creation payload.
 
     Returns:
-        models.User: created user instance
+        The created User instance.
+
+    Raises:
+        ConflictError: If email is already registered.
     """
     existing_user = await get_user_by_email(db, user.email)
     if existing_user:
-        raise Exception("Email already registered")
+        raise ConflictError("Email already registered")
 
-    hashed_password = hash(user.password)
+    hashed_password = await hash_password(user.password)
     verification_token = secrets.token_urlsafe(32)
     new_user = User(
         **user.model_dump(exclude={"password"}),
@@ -123,15 +186,15 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
         is_verified=False,
     )
     db.add(new_user)
+
     await db.commit()
 
     await db.refresh(new_user)
 
     try:
         send_verification_email_task.delay(new_user.email, verification_token)
-    except Exception as e:
-        logger.error(f"Email sending failed: {e}")
-        raise Exception("Failed to send verification email")
+    except Exception:
+        logger.exception(f"Failed to queue verification email for user {new_user.id}")
 
     return new_user
 
@@ -143,28 +206,28 @@ async def update_user(
     is_private: bool | None = None,
     image_url: str | None = None,
     public_id: str | None = None,
-) -> UserOut | None:
+) -> User | None:
     """
-    Update a user's details in the database.
+    Update user profile fields.
 
-    Retrieves a user by ID and updates the provided fields. Only fields
-    explicitly set in `user_data` are updated. Optionally updates the
-    user's profile picture if `image_url` is provided.
+    Updates only the fields that are explicitly provided.
 
     Args:
-        db (AsyncSession): The asynchronous database session.
-        user_id (int): The unique identifier of the user to update.
-        user_data (UserUpdate | None): Pydantic schema containing fields
-            to update. Only non-unset fields will be applied.
-        image_url (str | None, optional): URL of the user's profile picture.
-            Defaults to None.
+        db: The asynchronous database session.
+        user: The user instance to update.
+        bio: Optional updated bio.
+        is_private: Optional privacy setting.
+        image_url: Optional profile image URL.
+        public_id: Optional Cloudinary public ID.
 
     Returns:
-        User | None: The updated user object if found, otherwise None.
+        The updated User instance.
 
+    Raises:
+        UserNotFoundError: If user instance is invalid.
     """
     if not user:
-        return None
+        raise UserNotFoundError()
 
     if bio is not None:
         user.bio = bio
@@ -179,6 +242,8 @@ async def update_user(
         user.public_id = public_id
 
     await db.commit()
+
+
     await db.refresh(user)
 
     return user
@@ -186,25 +251,22 @@ async def update_user(
 
 async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
     """
-    Soft delete a user and remove their profile picture from Cloudinary.
-
-    This function performs a soft delete by setting the `deleted_at` field
-    for the user with the given ID. Before marking the user as deleted, it
-    fetches the user record to retrieve and delete the profile picture from
-    Cloudinary (if it exists).
+    Soft delete a user account and remove profile image from Cloudinary.
 
     Steps:
-        1. Fetch user by ID if not already deleted.
-        2. Delete profile picture from Cloudinary (if available).
-        3. Perform a soft delete by updating `deleted_at`.
-        4. Commit the transaction.
+        - Retrieve user
+        - Delete profile image from Cloudinary (if exists)
+        - Soft delete user by setting deleted_at timestamp
 
     Args:
-        db (AsyncSession): The asynchronous database session.
-        user_id (int): The unique identifier of the user to delete.
+        db: The asynchronous database session.
+        user_id: ID of the user to delete.
 
     Returns:
-        bool: True if the user was found and deleted, False otherwise.
+        True if deletion was successful.
+
+    Raises:
+        UserNotFoundError: If user does not exist.
     """
 
     result = await db.execute(
@@ -213,13 +275,7 @@ async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
     user = result.scalars().first()
 
     if not user:
-        return False
-
-    if user.public_id:
-        try:
-            await delete_image_from_cloudinary(user.public_id)
-        except Exception as e:
-            logger.error(e)
+        raise UserNotFoundError("User not found")
 
     stmt = (
         update(User)
@@ -229,6 +285,12 @@ async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
 
     await db.execute(stmt)
     await db.commit()
+    
+    if user.public_id:
+        try:
+            await delete_image_from_cloudinary(user.public_id)
+        except ExternalServiceError:
+            logger.exception(f"Failed to delete profile picture from Cloudinary for user {user_id}")
 
     return True
 
@@ -240,46 +302,47 @@ async def search_users(
     offset: int = 0,
 ) -> list[User]:
     """
-    Search users by username using PostgreSQL trigram similarity.
+    Search users by username using fuzzy matching.
 
-    This function performs a fuzzy search on usernames using trigram
-    similarity and prefix matching. Results are ranked by similarity score.
+    Uses PostgreSQL trigram similarity and prefix matching to rank results.
+
+    Ranking priority:
+        - Exact match
+        - Prefix match
+        - Similarity score
 
     Args:
-        db (AsyncSession): Asynchronous database session.
-        query (str): Search query string entered by user.
-        limit (int, optional): Maximum number of results to return. Defaults to 20.
-        offset (int, optional): Number of records to skip for pagination. Defaults to 0.
+        db: The asynchronous database session.
+        query: Search keyword.
+        limit: Maximum number of results.
+        offset: Pagination offset.
 
     Returns:
-        list[User]: List of matching users.
-
-    Raises:
-        Exception: If database query execution fails.
+        List of matching User instances.
     """
-    try:
-        similarity_threshold = 0.3
-
-        stmt = (
-            select(User)
-            .where(
-                User.deleted_at.is_(None),
-                or_(
-                    User.username.ilike(f"{query}%"),
-                    func.similarity(User.username, query) > similarity_threshold,
-                ),
-            )
-            .order_by(func.similarity(User.username, query).desc())
-            .limit(limit)
-            .offset(offset)
+    similarity_threshold = 0.3
+    score=case(
+        (User.username==query,3),
+        (User.username.ilike(f"{query}%"),2),
+        else_=func.similarity(User.username, query))
+    
+    stmt = (
+        select(User)
+        .where(
+            User.deleted_at.is_(None),
+            or_(
+                User.username.ilike(f"{query}%"),
+                func.similarity(User.username, query) > similarity_threshold,
+            ),
         )
+        .order_by(score.desc())
+        .limit(limit)
+        .offset(offset)
+    )
 
-        result = await db.execute(stmt)
-        return result.scalars().all()
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
-    except Exception as e:
-        logger.error(f"Error in search_users: {e}")
-        raise Exception("Failed to search users")
 
 
 async def update_password(
@@ -289,33 +352,33 @@ async def update_password(
     payload: UpdatePasswordSchema,
 ):
     """
-    Update the password for an existing user after validating the current password.
+    Update a user's password after validation.
 
-    This function performs two main validations before updating the password:
-    1. Ensures that the provided current password matches the user's existing password.
-    2. Ensures that the new password is not the same as the current password.
-
-    If both validations pass, the user's password is hashed and updated in the database.
+    Validations:
+        - Current password must be correct
+        - New password must differ from old password
 
     Args:
-        db (AsyncSession): The SQLAlchemy asynchronous database session.
-        user (User): The user object whose password is being updated.
-        payload (UpdatePasswordSchema): Schema containing current_password and new_password.
+        db: The asynchronous database session.
+        user: The user whose password is being updated.
+        payload: Password update payload.
+
+    Returns:
+        Dict containing success message.
 
     Raises:
-        Exception: If the current password is incorrect.
-        Exception: If the new password is the same as the existing password.
-
+        ValidationError: If password validation fails.
     """
 
-    if not verify(payload.current_password, user.password):
-        raise Exception("Current password is incorrect")
+    if not await verify_password(payload.current_password, user.password):
+        raise ValidationError("Current password is incorrect")
 
-    if verify(payload.new_password, user.password):
-        raise Exception("New password cannot be same as old password")
+    if await verify_password(payload.new_password, user.password):
+        raise ValidationError("New password cannot be same as old password")
 
-    user.password = hash(payload.new_password)
+    user.password = await hash_password(payload.new_password)
 
     await db.commit()
+
 
     return {"message": "Password updated successfully"}

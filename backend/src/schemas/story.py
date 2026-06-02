@@ -2,11 +2,6 @@ from pydantic import BaseModel
 from datetime import datetime
 from src.schemas.user import UserOut
 
-
-class StoryCreate(BaseModel):
-    media_url: str
-
-
 class StoryResponse(BaseModel):
     id: int
     media_url: str

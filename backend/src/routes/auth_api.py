@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends
+from src.core.exceptions import InvalidCredentialsError, VerificationTokenNotFoundError, UnauthorizedAccessError
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models.user import User
 from src.dependencies.database import get_pg_db
-from src.utils.password_verification import verify
+from src.utils.password_verification import verify_password
 from src.core import security
 from src.repositories.user_repo import get_user_by_email
 from src.schemas.auth import Token, RefreshTokenRequest, AccessTokenResponse
@@ -19,37 +20,33 @@ async def login(
     db: AsyncSession = Depends(get_pg_db),
 ) -> Token:
     """
-    Authenticate a user and return a JWT access token.
+    Authenticate a user and return JWT tokens.
 
-    This endpoint verifies the user's email and password. If the credentials
-    are valid and the user is verified, a JWT access token is generated and returned.
+    Validates user credentials and ensures the account is verified.
+    On success, generates both access and refresh tokens.
 
     Args:
-        user_credentials (UserLogin): The request body containing user email and password.
-        db (AsyncSession): The asynchronous database session.
+        user_credentials: Login payload containing email and password.
+        db: The asynchronous database session.
 
     Returns:
-        Token: A dictionary containing the access token and token type.
+        Token containing access token, refresh token, and token type.
 
+    Raises:
+        InvalidCredentialsError: If email or password is incorrect.
+        UnauthorizedAccessError: If the email is not verified.
     """
 
     user = await get_user_by_email(db, user_credentials.email)
 
-    invalid_credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid Credentials",
-    )
     if not user:
-        raise invalid_credentials_exception
+        raise InvalidCredentialsError()
 
-    if not verify(user_credentials.password, user.password):
-        raise invalid_credentials_exception
-
+    if not await verify_password(user_credentials.password, user.password):
+        raise InvalidCredentialsError()
+    
     if not user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Please verify your email before logging in",
-        )
+        raise UnauthorizedAccessError("Email not verified. Please verify your email before logging in.")
 
     access_token = security.create_access_token(data={"user_id": user.id})
     refresh_token = security.create_refresh_token(data={"user_id": user.id})
@@ -62,23 +59,24 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
     """
     Verify a user's email using a verification token.
 
-    This endpoint validates the provided token, marks the corresponding
-    user's email as verified, and removes the verification token from
-    the database.
+    Validates the token, activates the user's account, and removes
+    the verification token from the database.
 
     Args:
-        token (str): The email verification token.
-        db (AsyncSession): The asynchronous database session.
+        token: Email verification token.
+        db: The asynchronous database session.
 
     Returns:
-        dict: A message indicating successful email verification.
+        VerifyEmailResponse indicating successful verification.
 
+    Raises:
+        VerificationTokenNotFoundError: If token is invalid or expired.
     """
     result = await db.execute(select(User).where(User.verification_token == token))
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid token")
+        raise VerificationTokenNotFoundError("Invalid or expired verification token")
 
     user.is_verified = True
     user.verification_token = None
@@ -90,19 +88,19 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_pg_db)):
 @router.post("/refresh", response_model=AccessTokenResponse)
 async def refresh_token(payload: RefreshTokenRequest):
     """
-    Refresh JWT access token using a valid refresh token.
+    Generate a new access token using a valid refresh token.
 
-    This endpoint validates the provided refresh token, generates a new
-    access token, and returns both the new access token and the same
-    refresh token.
+    Decodes and validates the refresh token, extracts the user ID,
+    and issues a new access token.
 
     Args:
-        payload (RefreshTokenRequest): The request body containing the refresh token.
-        db (AsyncSession): The asynchronous database session.
+        payload: Request body containing the refresh token.
 
     Returns:
-        AccessTokenResponse: A response containing the new access token and token type.
+        AccessTokenResponse containing a new access token and token type.
 
+    Raises:
+        UnauthorizedAccessError: If the refresh token is invalid or expired.
     """
     decoded = security.verify_refresh_token(payload.refresh_token)
 

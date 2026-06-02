@@ -16,18 +16,18 @@ async def follow_user(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Follow a user.
+    Create a follow relationship with a user.
 
-    Creates a follow relationship from the current authenticated user
-    to the target user specified by user_id.
+    Creates a follow request or direct follow depending on the target
+    user's privacy settings.
 
     Args:
-        user_id (int): ID of the user to follow.
-        db (AsyncSession): Database session dependency.
-        current_user (User): The authenticated user performing the action.
+        user_id: ID of the user to follow.
+        db: Database session dependency.
+        current_user: Authenticated user performing the action.
 
     Returns:
-        FollowOut: The created follow relationship.
+        The created Follow relationship.
     """
     return await follow_repo.follow_user(db, current_user, user_id)
 
@@ -39,15 +39,14 @@ async def unfollow_user(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Unfollow a user.
+    Remove a follow relationship.
 
-    Removes an existing follow relationship between the current user
-    and the target user.
+    Deletes the follow relationship between the current user and target user.
 
     Args:
-        user_id (int): ID of the user to unfollow.
-        db (AsyncSession): Database session dependency.
-        current_user (User): The authenticated user performing the action.
+        user_id: ID of the user to unfollow.
+        db: Database session dependency.
+        current_user: Authenticated user performing the action.
 
     Returns:
         None
@@ -61,16 +60,16 @@ async def get_follow_requests(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get incoming follow requests.
+    Retrieve incoming follow requests.
 
-    Retrieves all pending follow requests received by the current user.
+    Returns all pending follow requests received by the current user.
 
     Args:
-        db (AsyncSession): Database session dependency.
-        current_user (User): The authenticated user.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        list[FollowResponse]: List of pending follow requests.
+        List of FollowResponse objects.
     """
     return await follow_repo.get_follow_requests(db, current_user)
 
@@ -81,21 +80,21 @@ async def get_followers(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get followers of the current user.
+    Retrieve followers of the current user.
 
-    Retrieves all users who are following the current authenticated user.
+    Returns all users who are following the authenticated user.
 
     Args:
-        db (AsyncSession): Database session dependency.
-        current_user (User): The authenticated user.
+        db: Database session dependency.
+        current_user: Authenticated user.
 
     Returns:
-        list[FollowResponse]: List of followers.
+        List of FollowResponse objects.
     """
     return await follow_repo.get_followers(db, current_user)
 
 
-@router.patch("/{user_id}", response_model=FollowOut)
+@router.patch("/{follow_id}", response_model=FollowOut)
 async def update_follow_status(
     follow_id: int,
     payload: FollowStatusUpdate,
@@ -103,19 +102,19 @@ async def update_follow_status(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Update follow request status.
+    Update the status of a follow request.
 
-    Updates the status of a follow request (e.g., accepted or rejected)
-    for a specific target user.
+    Allows updating a follow request status (e.g., accept or reject)
+    for a specific follow relationship.
 
     Args:
-        follow_id (int): ID of the follow relationship to update.
-        payload (FollowStatusUpdate): New status for the follow request.
-        db (AsyncSession): Database session dependency.
-        current_user (User): The authenticated user performing the action.
+        follow_id: ID of the follow relationship.
+        payload: New follow status.
+        db: Database session dependency.
+        current_user: Authenticated user performing the action.
 
     Returns:
-        FollowOut: Updated follow relationship.
+        Updated Follow relationship.
     """
     return await follow_repo.update_follow_status(
         db=db,
